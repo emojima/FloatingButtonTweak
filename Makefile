@@ -1,4 +1,4 @@
-# 使用环境变量或相对路径
+# 使用环境变量 THEOS，GitHub Actions 中会设置
 THEOS ?= $(HOME)/theos
 
 ARCHS = arm64 arm64e

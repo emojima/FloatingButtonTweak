@@ -7,6 +7,8 @@
 #import <setjmp.h>
 #import <signal.h>
 
+@class FloatingButtonManager;
+
 @interface LogWindowManager : NSObject
 @property (nonatomic, strong) UIView *logContainerView;
 @property (nonatomic, strong) UITextView *logTextView;

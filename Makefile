@@ -1,3 +1,4 @@
+# 使用环境变量或相对路径
 THEOS ?= $(HOME)/theos
 
 ARCHS = arm64 arm64e

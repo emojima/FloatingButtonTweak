@@ -7,8 +7,6 @@
 #import <setjmp.h>
 #import <signal.h>
 
-@class FloatingButtonManager;
-
 @interface LogWindowManager : NSObject
 @property (nonatomic, strong) UIView *logContainerView;
 @property (nonatomic, strong) UITextView *logTextView;
@@ -24,6 +22,17 @@
 - (void)appendLog:(NSString *)log;
 - (void)appendLogsBatch:(NSArray *)logs;
 @end
+
+@interface FloatingButtonManager : NSObject
+@property (nonatomic, strong) UIButton *floatingButton;
+@property (nonatomic, strong) NSTimer *keepOnTopTimer;
+@property (nonatomic, weak) UIWindow *lastWindow;
+@property (nonatomic, strong) NSMutableArray *hookedClasses;
++ (instancetype)sharedInstance;
+- (void)showFloatingButton;
+- (void)ensureButtonOnTop;
+@end
+
 
 @implementation LogWindowManager
 
@@ -233,16 +242,6 @@
     });
 }
 
-@end
-
-@interface FloatingButtonManager : NSObject
-@property (nonatomic, strong) UIButton *floatingButton;
-@property (nonatomic, strong) NSTimer *keepOnTopTimer;
-@property (nonatomic, weak) UIWindow *lastWindow;
-@property (nonatomic, strong) NSMutableArray *hookedClasses;
-+ (instancetype)sharedInstance;
-- (void)showFloatingButton;
-- (void)ensureButtonOnTop;
 @end
 
 @implementation FloatingButtonManager

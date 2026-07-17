@@ -16,22 +16,51 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ========== Step 2: 安装 Xcode 命令行工具 ==========
+      # ========== Step 2: 安装 Xcode ==========
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      # ========== Step 3: 使用 theos-action 安装 Theos ==========
-      - name: Setup Theos
-        uses: beerpiss/theos-action@v1
-        with:
-          theos-dir: 'theos'
-          theos-src: 'https://github.com/theos/theos'
-          theos-sdks: 'https://github.com/theos/sdks'
-          cache: true
+      # ========== Step 3: 安装依赖 ==========
+      - name: Install dependencies
+        run: |
+          brew install ldid dpkg
 
-      # ========== Step 4: 编译 Tweak ==========
+      # ========== Step 4: 安装 Theos ==========
+      - name: Install Theos
+        run: |
+          export THEOS=${{ github.workspace }}/theos
+          echo "THEOS=${THEOS}" >> $GITHUB_ENV
+          
+          # 删除旧目录
+          rm -rf $THEOS
+          
+          # 克隆 Theos（包含子模块）
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          
+          echo "Theos installed at: $THEOS"
+          ls -la $THEOS
+
+      # ========== Step 5: 下载 iOS SDK ==========
+      - name: Download iOS SDK
+        run: |
+          export THEOS=${{ github.workspace }}/theos
+          
+          mkdir -p $THEOS/sdks
+          cd $THEOS/sdks
+          
+          # 下载 iOS 16.5 SDK
+          curl -L -o iPhoneOS16.5.sdk.tar.gz \
+            "https://github.com/theos/sdks/releases/download/16.5/iPhoneOS16.5.sdk.tar.gz"
+          
+          tar -xzf iPhoneOS16.5.sdk.tar.gz
+          rm iPhoneOS16.5.sdk.tar.gz
+          
+          echo "SDKs:"
+          ls -la $THEOS/sdks/
+
+      # ========== Step 6: 编译 Tweak ==========
       - name: Build Tweak
         run: |
           export THEOS=${{ github.workspace }}/theos
@@ -44,7 +73,7 @@ jobs:
           echo "=== 编译产物 ==="
           ls -la .theos/obj/debug/ 2>/dev/null || ls -la .theos/obj/
 
-      # ========== Step 5: 提取 dylib ==========
+      # ========== Step 7: 提取 dylib ==========
       - name: Extract dylib
         run: |
           mkdir -p ${{ github.workspace }}/artifacts
@@ -54,7 +83,7 @@ jobs:
           echo "=== 最终产物 ==="
           ls -la ${{ github.workspace }}/artifacts/
 
-      # ========== Step 6: 上传构建产物 ==========
+      # ========== Step 8: 上传构建产物 ==========
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

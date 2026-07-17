@@ -160,6 +160,46 @@
     });
 }
 
+// ========== 安全的内存修改函数 ==========
+- (BOOL)safeMemoryReplace:(void *)addr target:(const char *)targetStr targetLen:(size_t)targetLen newStr:(const char *)newStr newLen:(size_t)newLen {
+    if (!addr || !targetStr || !newStr) return NO;
+    if (targetLen == 0 || newLen == 0) return NO;
+
+    size_t pageSize = getpagesize();
+
+    // 计算需要修改的内存范围（确保覆盖完整页面）
+    uintptr_t addrStart = (uintptr_t)addr;
+    uintptr_t addrEnd = addrStart + newLen;
+
+    uintptr_t pageStart = (addrStart / pageSize) * pageSize;
+    uintptr_t pageEnd = ((addrEnd + pageSize - 1) / pageSize) * pageSize;
+    size_t protectSize = pageEnd - pageStart;
+
+    // 保存原始权限
+    int originalProt = PROT_READ;
+
+    // 修改内存权限为可读写
+    int result = mprotect((void *)pageStart, protectSize, PROT_READ | PROT_WRITE);
+    if (result != 0) {
+        // 尝试使用 vm_protect
+        kern_return_t kr = vm_protect(mach_task_self(), pageStart, protectSize, false, VM_PROT_READ | VM_PROT_COPY | VM_PROT_WRITE);
+        if (kr != KERN_SUCCESS) {
+            return NO;
+        }
+    }
+
+    // 复制新字符串
+    memcpy(addr, newStr, newLen);
+
+    // 恢复原始权限
+    mprotect((void *)pageStart, protectSize, originalProt);
+
+    // 刷新指令缓存
+    sys_icache_invalidate(addr, newLen);
+
+    return YES;
+}
+
 // ========== 修复：遍历所有加载的镜像搜索字符串 ==========
 - (void)performMemoryPatch {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -176,7 +216,6 @@
 
         // 遍历所有加载的镜像（包括主二进制和所有 Framework）
         for (uint32_t imgIndex = 0; imgIndex < imageCount; imgIndex++) {
-            const char *imageName = _dyld_get_image_name(imgIndex);
             const struct mach_header_64 *header = (const struct mach_header_64 *)_dyld_get_image_header(imgIndex);
 
             if (!header) continue;
@@ -203,31 +242,21 @@
                         uintptr_t segEnd = segStart + seg->vmsize;
                         uintptr_t searchPtr = segStart;
 
+                        // 确保搜索范围有效
+                        if (segStart == 0 || segEnd <= segStart) continue;
+
                         while (searchPtr < segEnd) {
+                            // 确保剩余空间足够
+                            if (searchPtr + targetLen > segEnd) break;
+
                             void *found = memmem((void *)searchPtr, segEnd - searchPtr, targetStr, targetLen);
                             if (!found) break;
 
-                            void *addr = found;
-                            size_t pageSize = getpagesize();
-                            uintptr_t pageStart = ((uintptr_t)addr / pageSize) * pageSize;
-                            size_t pageOffset = (uintptr_t)addr - pageStart;
-
-                            // 修改内存权限
-                            int result = mprotect((void *)pageStart, pageOffset + newLen, PROT_READ | PROT_WRITE);
-                            if (result != 0) {
-                                kern_return_t kr = vm_protect(mach_task_self(), pageStart, pageOffset + newLen, false, VM_PROT_READ | VM_PROT_COPY | VM_PROT_WRITE);
-                                if (kr != KERN_SUCCESS) {
-                                    searchPtr = (uintptr_t)found + 1;
-                                    continue;
-                                }
+                            // 安全替换
+                            if ([self safeMemoryReplace:found target:targetStr targetLen:targetLen newStr:newStr newLen:newLen]) {
+                                totalReplaceCount++;
                             }
 
-                            // 覆盖字符串
-                            memcpy(addr, newStr, newLen);
-                            mprotect((void *)pageStart, pageOffset + newLen, PROT_READ);
-                            sys_icache_invalidate(addr, newLen);
-
-                            totalReplaceCount++;
                             searchPtr = (uintptr_t)found + targetLen;
                         }
                     }
@@ -264,38 +293,26 @@
 
     while (vm_region_64(mach_task_self(), &address, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &infoCount, &objectName) == KERN_SUCCESS) {
         // 只搜索可读且已提交的内存
-        if ((info.protection & VM_PROT_READ) && (info.max_protection & VM_PROT_READ)) {
+        if ((info.protection & VM_PROT_READ) && (info.max_protection & VM_PROT_READ) && size > targetLen) {
             uintptr_t searchPtr = address;
             uintptr_t endPtr = address + size;
 
             while (searchPtr < endPtr) {
+                if (searchPtr + targetLen > endPtr) break;
+
                 void *found = memmem((void *)searchPtr, endPtr - searchPtr, targetStr, targetLen);
                 if (!found) break;
 
-                void *addr = found;
-                size_t pageSize = getpagesize();
-                uintptr_t pageStart = ((uintptr_t)addr / pageSize) * pageSize;
-                size_t pageOffset = (uintptr_t)addr - pageStart;
-
-                int result = mprotect((void *)pageStart, pageOffset + newLen, PROT_READ | PROT_WRITE);
-                if (result != 0) {
-                    kern_return_t kr = vm_protect(mach_task_self(), pageStart, pageOffset + newLen, false, VM_PROT_READ | VM_PROT_COPY | VM_PROT_WRITE);
-                    if (kr != KERN_SUCCESS) {
-                        searchPtr = (uintptr_t)found + 1;
-                        continue;
-                    }
+                if ([self safeMemoryReplace:found target:targetStr targetLen:targetLen newStr:newStr newLen:newLen]) {
+                    replaceCount++;
                 }
 
-                memcpy(addr, newStr, newLen);
-                mprotect((void *)pageStart, pageOffset + newLen, PROT_READ);
-                sys_icache_invalidate(addr, newLen);
-
-                replaceCount++;
                 searchPtr = (uintptr_t)found + targetLen;
             }
         }
 
         address += size;
+        infoCount = VM_REGION_BASIC_INFO_COUNT_64;
     }
 
     return replaceCount;

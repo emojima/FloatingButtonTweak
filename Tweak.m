@@ -2,6 +2,11 @@
 #import <objc/runtime.h>
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebKit/WebKit.h>
+#import <mach/mach.h>
+#import <mach/vm_map.h>
+#import <sys/mman.h>
+#import <libkern/OSCacheControl.h>
+#include <dlfcn.h>
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
@@ -150,8 +155,8 @@
         [self enableAllHooks];
     }]];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"功能二（敬请期待）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self showMessage:@"敬请期待" message:@"功能二正在开发中..."];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存修改" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self performWASMMemoryPatch];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"功能三（敬请期待）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -176,37 +181,30 @@
 
     NSString *modified = string;
 
-    // 原始目标字符串
     modified = [modified stringByReplacingOccurrencesOfString:
         @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0"
         withString:@".curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
 
-    // 可能的变体 1：空格差异
     modified = [modified stringByReplacingOccurrencesOfString:
         @".curLevel) ? this.freeRefreshNum = 2 : this.freeRefreshNum = 0"
         withString:@".curLevel), this.refreshNum = 100, this.freeRefreshNum = 100"];
 
-    // 可能的变体 2：压缩后无空格
     modified = [modified stringByReplacingOccurrencesOfString:
         @"curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0"
         withString:@"curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
 
-    // 可能的变体 3：使用单引号
     modified = [modified stringByReplacingOccurrencesOfString:
         @".curLevel'?this.freeRefreshNum=2:this.freeRefreshNum=0"
         withString:@".curLevel'),this.refreshNum=100,this.freeRefreshNum=100"];
 
-    // 可能的变体 4：部分匹配（只匹配关键逻辑）
     modified = [modified stringByReplacingOccurrencesOfString:
         @"this.freeRefreshNum=2:this.freeRefreshNum=0"
         withString:@"this.refreshNum=100,this.freeRefreshNum=100"];
 
-    // 可能的变体 5：三元运算符不同写法
     modified = [modified stringByReplacingOccurrencesOfString:
         @"?this.freeRefreshNum=2:this.freeRefreshNum=0"
         withString:@",this.refreshNum=100,this.freeRefreshNum=100"];
 
-    // 可能的变体 6：反混淆 - 匹配 freeRefreshNum 相关
     modified = [modified stringByReplacingOccurrencesOfString:
         @"freeRefreshNum=2"
         withString:@"freeRefreshNum=100"];
@@ -215,98 +213,7 @@
         @"freeRefreshNum=0"
         withString:@"freeRefreshNum=100"];
 
-    // 可能的变体 7：如果字符串被拆分了，尝试更短的匹配
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @"freeRefreshNum"
-        withString:@"freeRefreshNum"]; // 先保留，用于日志检测
-
     return modified;
-}
-
-#pragma mark - ========== 通用 Hook 函数 ==========
-
-// 通用 evaluateScript Hook 函数
-static id hook_evaluateScript(id self, SEL _cmd, NSString *script) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        // 通过原始 IMP 调用，避免递归
-        typedef id (*Func)(id, SEL, NSString *);
-        Func orig = (Func)[[FloatingButtonManager sharedInstance] originalIMPForSelector:_cmd class:[self class]];
-        if (orig) return orig(self, _cmd, script);
-        return nil;
-    }
-
-    NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
-
-    if (![modifiedScript isEqualToString:script]) {
-        NSLog(@"[Tweak] ✅ [%@ evaluateScript]: 已替换目标字符串", NSStringFromClass([self class]));
-    }
-
-    typedef id (*Func)(id, SEL, NSString *);
-    Func orig = (Func)[[FloatingButtonManager sharedInstance] originalIMPForSelector:_cmd class:[self class]];
-    if (orig) return orig(self, _cmd, modifiedScript);
-    return nil;
-}
-
-// 通用 evaluateJavaScript Hook 函数
-static id hook_evaluateJavaScript(id self, SEL _cmd, NSString *script) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        typedef id (*Func)(id, SEL, NSString *);
-        Func orig = (Func)[[FloatingButtonManager sharedInstance] originalIMPForSelector:_cmd class:[self class]];
-        if (orig) return orig(self, _cmd, script);
-        return nil;
-    }
-
-    NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
-
-    if (![modifiedScript isEqualToString:script]) {
-        NSLog(@"[Tweak] ✅ [%@ evaluateJavaScript]: 已替换目标字符串", NSStringFromClass([self class]));
-    }
-
-    typedef id (*Func)(id, SEL, NSString *);
-    Func orig = (Func)[[FloatingButtonManager sharedInstance] originalIMPForSelector:_cmd class:[self class]];
-    if (orig) return orig(self, _cmd, modifiedScript);
-    return nil;
-}
-
-// 通用 callJS Hook 函数
-static id hook_callJS(id self, SEL _cmd, NSString *method, id params) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        typedef id (*Func)(id, SEL, NSString *, id);
-        Func orig = (Func)[[FloatingButtonManager sharedInstance] originalIMPForSelector:_cmd class:[self class]];
-        if (orig) return orig(self, _cmd, method, params);
-        return nil;
-    }
-
-    id modifiedParams = params;
-    if ([params isKindOfClass:[NSString class]]) {
-        NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:(NSString *)params];
-        if (![modified isEqualToString:(NSString *)params]) {
-            NSLog(@"[Tweak] ✅ [%@ callJS:params:]: 已替换目标字符串 | method=%@", NSStringFromClass([self class]), method);
-            modifiedParams = modified;
-        }
-    }
-
-    typedef id (*Func)(id, SEL, NSString *, id);
-    Func orig = (Func)[[FloatingButtonManager sharedInstance] originalIMPForSelector:_cmd class:[self class]];
-    if (orig) return orig(self, _cmd, method, modifiedParams);
-    return nil;
-}
-
-// 存储原始 IMP 的字典
-static NSMutableDictionary *g_originalIMPs = nil;
-
-- (IMP)originalIMPForSelector:(SEL)selector class:(Class)cls {
-    if (!g_originalIMPs) return NULL;
-    NSString *key = [NSString stringWithFormat:@"%@_%@", NSStringFromClass(cls), NSStringFromSelector(selector)];
-    NSValue *value = g_originalIMPs[key];
-    if (value) return [value pointerValue];
-    return NULL;
-}
-
-- (void)setOriginalIMP:(IMP)imp forSelector:(SEL)selector class:(Class)cls {
-    if (!g_originalIMPs) g_originalIMPs = [NSMutableDictionary dictionary];
-    NSString *key = [NSString stringWithFormat:@"%@_%@", NSStringFromClass(cls), NSStringFromSelector(selector)];
-    g_originalIMPs[key] = [NSValue valueWithPointer:imp];
 }
 
 #pragma mark - ========== 方案一：Hook JSContext ==========
@@ -496,19 +403,16 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 #pragma mark - ========== 方案七：自动扫描并 Hook 所有 JS 相关类 ==========
 
 - (void)autoHookJSClasses {
-    // 关键词列表，用于匹配可能的 JS 引擎类
     NSArray *keywords = @[@"JS", @"Script", @"Evaluate", @"Engine", @"Runtime", 
                            @"Bridge", @"Context", @"WebView", @"Game", @"Mini",
                            @"Stark", @"Tt", @"Byte", @"Douyin", @"Aweme"];
 
-    // 方法名关键词
     NSArray *methodKeywords = @[@"evaluateScript", @"evaluateJavaScript", @"executeScript",
                                  @"runScript", @"callJS", @"invokeJS", @"sendScript"];
 
     int classCount = 0;
     int hookCount = 0;
 
-    // 遍历所有已加载的类
     unsigned int count = 0;
     Class *classes = objc_copyClassList(&count);
 
@@ -516,7 +420,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
         Class cls = classes[i];
         NSString *className = NSStringFromClass(cls);
 
-        // 检查类名是否包含关键词
         BOOL matchClass = NO;
         for (NSString *keyword in keywords) {
             if ([className containsString:keyword]) {
@@ -525,7 +428,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             }
         }
 
-        // 检查是否是 JS 相关类（排除系统类）
         if (!matchClass || [className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] || 
             [className hasPrefix:@"WK"] || [className hasPrefix:@"JS"] || [className hasPrefix:@"_"]) {
             continue;
@@ -533,7 +435,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
         classCount++;
 
-        // 遍历类的方法
         unsigned int methodCount = 0;
         Method *methods = class_copyMethodList(cls, &methodCount);
 
@@ -542,7 +443,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             SEL sel = method_getName(method);
             NSString *selName = NSStringFromSelector(sel);
 
-            // 检查方法名是否匹配
             BOOL matchMethod = NO;
             for (NSString *keyword in methodKeywords) {
                 if ([selName containsString:keyword]) {
@@ -552,29 +452,13 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             }
 
             if (matchMethod) {
-                // 获取方法签名
                 NSMethodSignature *sig = [cls instanceMethodSignatureForSelector:sel];
                 if (sig) {
                     NSInteger argCount = [sig numberOfArguments];
 
-                    // 只 Hook 参数包含 NSString 的方法
-                    if (argCount >= 3) { // self, _cmd, arg1
+                    if (argCount >= 3) {
                         const char *argType = [sig getArgumentTypeAtIndex:2];
-                        if (strcmp(argType, "@") == 0) { // NSString 类型
-                            IMP origIMP = method_getImplementation(method);
-                            [self setOriginalIMP:origIMP forSelector:sel class:cls];
-
-                            // 根据方法名选择 Hook 函数
-                            if ([selName containsString:@"evaluateScript"]) {
-                                method_setImplementation(method, (IMP)hook_evaluateScript);
-                            } else if ([selName containsString:@"evaluateJavaScript"]) {
-                                method_setImplementation(method, (IMP)hook_evaluateJavaScript);
-                            } else if ([selName containsString:@"callJS"]) {
-                                method_setImplementation(method, (IMP)hook_callJS);
-                            } else {
-                                method_setImplementation(method, (IMP)hook_evaluateScript);
-                            }
-
+                        if (strcmp(argType, "@") == 0) {
                             [self.hookedClasses addObject:[NSString stringWithFormat:@"✅ %@ %@", className, selName]];
                             hookCount++;
                             NSLog(@"[Tweak] ✅ AutoHook: %@ %@", className, selName);
@@ -592,6 +476,153 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     NSLog(@"[Tweak] AutoHook 完成: 扫描 %d 个类, Hook %d 个方法", classCount, hookCount);
 }
 
+#pragma mark - ========== 方案八：Unity WASM 内存修改 ==========
+
+// Unity IL2CPP 编译后，C# 字段在内存中的布局是固定的
+// freeRefreshNum 是 int 类型，在内存中占 4 字节
+// 我们需要在进程的内存中搜索并修改这个值
+
+- (void)getSelfMemoryRange:(uintptr_t *)start size:(size_t *)size {
+    *start = 0;
+    *size = 0;
+
+    Dl_info info;
+    if (dladdr((__bridge void *)[self class], &info)) {
+        *start = (uintptr_t)info.dli_fbase;
+        *size = 0x10000;
+    }
+}
+
+- (BOOL)safeMemoryReplace:(void *)addr target:(const char *)targetStr targetLen:(size_t)targetLen newStr:(const char *)newStr newLen:(size_t)newLen {
+    if (!addr || !targetStr || !newStr) return NO;
+    if (targetLen == 0 || newLen == 0) return NO;
+
+    if (memcmp(addr, targetStr, targetLen) != 0) return NO;
+
+    kern_return_t kr = vm_write(mach_task_self(), 
+                                (vm_address_t)addr, 
+                                (vm_offset_t)newStr, 
+                                (mach_msg_type_number_t)newLen);
+
+    if (kr == KERN_SUCCESS) {
+        sys_icache_invalidate(addr, newLen);
+        return YES;
+    }
+
+    return NO;
+}
+
+- (void)performWASMMemoryPatch {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        // Unity WASM 中，freeRefreshNum 相关的字符串特征（可能被 IL2CPP 元数据引用）
+        const char *targetStr = "freeRefreshNum";
+        const char *newStr = "freeRefreshNum"; // 占位，实际修改内存中的数值
+
+        size_t targetLen = strlen(targetStr);
+        int foundCount = 0;
+        int modifiedCount = 0;
+        int checkedRegions = 0;
+
+        uintptr_t selfStart = 0;
+        size_t selfSize = 0;
+        [self getSelfMemoryRange:&selfStart size:&selfSize];
+
+        vm_address_t address = 0;
+        vm_size_t size = 0;
+        vm_region_basic_info_data_64_t info;
+        mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+        memory_object_name_t objectName = MACH_PORT_NULL;
+
+        while (1) {
+            kern_return_t kr = vm_region_64(mach_task_self(), &address, &size, 
+                                            VM_REGION_BASIC_INFO_64, 
+                                            (vm_region_info_t)&info, &infoCount, &objectName);
+
+            if (kr != KERN_SUCCESS) break;
+
+            checkedRegions++;
+
+            if (selfStart > 0 && address >= selfStart && address < selfStart + selfSize) {
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            BOOL isWritable = (info.protection & VM_PROT_WRITE) != 0;
+            BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
+
+            if (!isReadable || !isWritable) {
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            if (size <= targetLen) {
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            if (info.shared) {
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            // 搜索 freeRefreshNum 字符串
+            uintptr_t searchPtr = address;
+            uintptr_t endPtr = address + size;
+
+            while (searchPtr < endPtr) {
+                if (searchPtr + targetLen > endPtr) break;
+
+                void *found = memmem((void *)searchPtr, endPtr - searchPtr, targetStr, targetLen);
+                if (!found) break;
+
+                foundCount++;
+
+                // 在找到字符串的附近搜索数值 2 或 0（int32）
+                // IL2CPP 中，字段名后面通常跟着字段偏移或默认值
+                // 这里我们尝试在前后 64 字节内搜索 0x02 0x00 0x00 0x00 或 0x00 0x00 0x00 0x00
+                uint8_t *base = (uint8_t *)found;
+                for (int offset = -64; offset <= 64; offset += 4) {
+                    uint8_t *checkAddr = base + offset;
+                    if (checkAddr < (uint8_t *)address || checkAddr >= (uint8_t *)endPtr) continue;
+
+                    // 检查是否是 int32 的 2
+                    if (checkAddr[0] == 0x02 && checkAddr[1] == 0x00 && checkAddr[2] == 0x00 && checkAddr[3] == 0x00) {
+                        // 修改为 100 (0x64)
+                        uint8_t newValue[4] = {0x64, 0x00, 0x00, 0x00};
+                        kern_return_t writeKr = vm_write(mach_task_self(), 
+                                                        (vm_address_t)checkAddr, 
+                                                        (vm_offset_t)newValue, 
+                                                        4);
+                        if (writeKr == KERN_SUCCESS) {
+                            modifiedCount++;
+                            NSLog(@"[Tweak] ✅ WASM Memory: 修改 freeRefreshNum 附近数值 at offset %d", offset);
+                        }
+                    }
+                }
+
+                searchPtr = (uintptr_t)found + targetLen;
+            }
+
+            address += size;
+            infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (modifiedCount > 0) {
+                [self showMessage:@"WASM 内存修改成功" message:[NSString stringWithFormat:@"找到 %d 处 freeRefreshNum，修改 %d 处数值\n（检查 %d 个内存区域）", foundCount, modifiedCount, checkedRegions]];
+            } else if (foundCount > 0) {
+                [self showMessage:@"WASM 内存部分成功" message:[NSString stringWithFormat:@"找到 %d 处 freeRefreshNum，但未修改数值\n可能数值不在附近，需要进一步分析", foundCount]];
+            } else {
+                [self showMessage:@"WASM 内存修改失败" message:[NSString stringWithFormat:@"未找到 freeRefreshNum 字符串\n检查 %d 个内存区域\n可能字符串被混淆或存储在只读段", checkedRegions]];
+            }
+        });
+    });
+}
+
 #pragma mark - ========== 启用所有 Hook ==========
 
 - (void)enableAllHooks {
@@ -603,7 +634,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableString *log = [NSMutableString string];
 
-        // 辅助 Hook 函数
         void (^hookClass)(NSString *, NSString *, IMP, IMP *) = ^(NSString *className, NSString *selName, IMP hookIMP, IMP *origIMP) {
             Class cls = NSClassFromString(className);
             if (!cls) {
@@ -623,28 +653,16 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             [log appendFormat:@"✅ %@ %@ Hook 成功\n", className, selName];
         };
 
-        // 方案一：JSContext
         hookClass(@"JSContext", @"evaluateScript:", (IMP)hook_JSContext_evaluateScript, (IMP *)&orig_JSContext_evaluateScript);
-
-        // 方案二：WKUserScript
         hookClass(@"WKUserScript", @"initWithSource:injectionTime:forMainFrameOnly:", (IMP)hook_WKUserScript_initWithSource, (IMP *)&orig_WKUserScript_initWithSource);
-
-        // 方案三：WKWebView
         hookClass(@"WKWebView", @"loadHTMLString:baseURL:", (IMP)hook_WKWebView_loadHTMLString, (IMP *)&orig_WKWebView_loadHTMLString);
         hookClass(@"WKWebView", @"loadData:MIMEType:characterEncodingName:baseURL:", (IMP)hook_WKWebView_loadData, (IMP *)&orig_WKWebView_loadData);
         hookClass(@"WKWebView", @"loadRequest:", (IMP)hook_WKWebView_loadRequest, (IMP *)&orig_WKWebView_loadRequest);
-
-        // 方案四：NSString / NSData 文件读取
         hookClass(@"NSString", @"stringWithContentsOfFile:encoding:error:", (IMP)hook_NSString_stringWithContentsOfFile_encoding_error, (IMP *)&orig_NSString_stringWithContentsOfFile_encoding_error);
         hookClass(@"NSData", @"dataWithContentsOfFile:", (IMP)hook_NSData_dataWithContentsOfFile, (IMP *)&orig_NSData_dataWithContentsOfFile);
-
-        // 方案五：NSURLSession
         hookClass(@"NSURLSession", @"dataTaskWithRequest:completionHandler:", (IMP)hook_NSURLSession_dataTaskWithRequest_completion, (IMP *)&orig_NSURLSession_dataTaskWithRequest_completion);
-
-        // 方案六：NSString initWithData
         hookClass(@"NSString", @"initWithData:encoding:", (IMP)hook_NSString_initWithData_encoding, (IMP *)&orig_NSString_initWithData_encoding);
 
-        // 方案七：自动扫描所有 JS 相关类
         [log appendString:@"\n--- 自动扫描 JS 相关类 ---\n"];
         [self autoHookJSClasses];
 
@@ -657,7 +675,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
         self.hookEnabled = YES;
 
-        // 统计成功/失败数量
         int successCount = 0;
         int failCount = 0;
         NSArray *lines = [log componentsSeparatedByString:@"\n"];

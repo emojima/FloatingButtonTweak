@@ -296,7 +296,7 @@ static id hook_WKWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
     return orig_WKWebView_loadRequest(self, _cmd, request);
 }
 
-#pragma mark - ========== 方案四：Hook NSData / NSString 读取文件 ==========
+#pragma mark - ========== 方案四：Hook 文件读取 ==========
 
 // Hook NSString stringWithContentsOfFile
 static id (*orig_NSString_stringWithContentsOfFile_encoding_error)(id self, SEL _cmd, NSString *path, NSStringEncoding enc, NSError **error);
@@ -340,7 +340,7 @@ static id hook_NSData_dataWithContentsOfFile(id self, SEL _cmd, NSString *path) 
     return result;
 }
 
-#pragma mark - ========== 方案五：Hook NSURLConnection / NSURLSession 网络请求 ==========
+#pragma mark - ========== 方案五：Hook 网络请求 ==========
 
 // Hook NSURLSession dataTaskWithRequest
 static id (*orig_NSURLSession_dataTaskWithRequest_completion)(id self, SEL _cmd, NSURLRequest *request, id completionHandler);
@@ -353,6 +353,7 @@ static id hook_NSURLSession_dataTaskWithRequest_completion(id self, SEL _cmd, NS
     id modifiedCompletion = completionHandler;
     if (completionHandler) {
         modifiedCompletion = ^(NSData *data, NSURLResponse *response, NSError *error) {
+            NSData *modifiedData = data;
             if (data && [response isKindOfClass:[NSHTTPURLResponse class]]) {
                 NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
                 NSString *contentType = httpResponse.allHeaderFields[@"Content-Type"];
@@ -371,21 +372,21 @@ static id hook_NSURLSession_dataTaskWithRequest_completion(id self, SEL _cmd, NS
                         NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
                         if (![modifiedContent isEqualToString:content]) {
                             NSLog(@"[Tweak] ✅ NSURLSession: 已替换网络响应数据 | URL=%@", urlString);
-                            data = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
+                            modifiedData = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
                         }
                     }
                 }
             }
 
             void (^origBlock)(NSData *, NSURLResponse *, NSError *) = completionHandler;
-            origBlock(data, response, error);
+            origBlock(modifiedData, response, error);
         };
     }
 
     return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, modifiedCompletion);
 }
 
-#pragma mark - ========== 方案六：Hook 通用字符串创建方法 ==========
+#pragma mark - ========== 方案六：Hook 通用字符串创建 ==========
 
 // Hook NSString initWithData
 static id (*orig_NSString_initWithData_encoding)(id self, SEL _cmd, NSData *data, NSStringEncoding encoding);
@@ -407,33 +408,156 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     return result;
 }
 
-#pragma mark - ========== 方案七：Hook 微信小程序 / 小游戏特定类 ==========
+#pragma mark - ========== 方案七：抖音小程序小游戏专用 Hook ==========
 
-// Hook WXJSCoreBridge (微信小程序 JSBridge)
-static id (*orig_WXJSCoreBridge_evaluateJavaScript)(id self, SEL _cmd, NSString *script);
-static id hook_WXJSCoreBridge_evaluateJavaScript(id self, SEL _cmd, NSString *script) {
+// 抖音小程序使用自研 JS 引擎（基于 V8/JSC 封装），常见类名如下：
+// - BDJSContext / TTJSContext / AwemeJSContext
+// - BDWebView / TTWebView / AwemeWebView
+// - BDJSBridge / TTJSBridge / AwemeJSBridge
+// - TTGameEngine / TTGameRuntime
+
+// Hook 抖音 JS 引擎执行方法
+static id (*orig_BDJSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
+static id hook_BDJSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
     if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_WXJSCoreBridge_evaluateJavaScript(self, _cmd, script);
+        return orig_BDJSContext_evaluateScript(self, _cmd, script);
     }
 
     NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
 
     if (![modifiedScript isEqualToString:script]) {
-        NSLog(@"[Tweak] ✅ WXJSCoreBridge evaluateJavaScript: 已替换目标字符串");
+        NSLog(@"[Tweak] ✅ BDJSContext evaluateScript: 已替换目标字符串");
     }
 
-    return orig_WXJSCoreBridge_evaluateJavaScript(self, _cmd, modifiedScript);
+    return orig_BDJSContext_evaluateScript(self, _cmd, modifiedScript);
 }
 
-// Hook MMWKWebView (可能的小程序 WebView 类)
-static id (*orig_MMWKWebView_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
-static id hook_MMWKWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
+static id (*orig_TTJSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
+static id hook_TTJSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
     if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_MMWKWebView_loadRequest(self, _cmd, request);
+        return orig_TTJSContext_evaluateScript(self, _cmd, script);
     }
 
-    NSLog(@"[Tweak] ℹ️ MMWKWebView loadRequest: URL=%@", request.URL.absoluteString);
-    return orig_MMWKWebView_loadRequest(self, _cmd, request);
+    NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
+
+    if (![modifiedScript isEqualToString:script]) {
+        NSLog(@"[Tweak] ✅ TTJSContext evaluateScript: 已替换目标字符串");
+    }
+
+    return orig_TTJSContext_evaluateScript(self, _cmd, modifiedScript);
+}
+
+static id (*orig_AwemeJSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
+static id hook_AwemeJSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_AwemeJSContext_evaluateScript(self, _cmd, script);
+    }
+
+    NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
+
+    if (![modifiedScript isEqualToString:script]) {
+        NSLog(@"[Tweak] ✅ AwemeJSContext evaluateScript: 已替换目标字符串");
+    }
+
+    return orig_AwemeJSContext_evaluateScript(self, _cmd, modifiedScript);
+}
+
+// Hook 抖音 JSBridge 通信
+static id (*orig_TTJSBridge_callJS)(id self, SEL _cmd, NSString *method, id params);
+static id hook_TTJSBridge_callJS(id self, SEL _cmd, NSString *method, id params) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_TTJSBridge_callJS(self, _cmd, method, params);
+    }
+
+    // 如果参数是字符串（JS 代码），尝试替换
+    if ([params isKindOfClass:[NSString class]]) {
+        NSString *modifiedParams = [[FloatingButtonManager sharedInstance] replaceTargetInString:(NSString *)params];
+        if (![modifiedParams isEqualToString:(NSString *)params]) {
+            NSLog(@"[Tweak] ✅ TTJSBridge callJS: 已替换目标字符串 | method=%@", method);
+            return orig_TTJSBridge_callJS(self, _cmd, method, modifiedParams);
+        }
+    }
+
+    return orig_TTJSBridge_callJS(self, _cmd, method, params);
+}
+
+static id (*orig_BDJSBridge_callJS)(id self, SEL _cmd, NSString *method, id params);
+static id hook_BDJSBridge_callJS(id self, SEL _cmd, NSString *method, id params) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_BDJSBridge_callJS(self, _cmd, method, params);
+    }
+
+    if ([params isKindOfClass:[NSString class]]) {
+        NSString *modifiedParams = [[FloatingButtonManager sharedInstance] replaceTargetInString:(NSString *)params];
+        if (![modifiedParams isEqualToString:(NSString *)params]) {
+            NSLog(@"[Tweak] ✅ BDJSBridge callJS: 已替换目标字符串 | method=%@", method);
+            return orig_BDJSBridge_callJS(self, _cmd, method, modifiedParams);
+        }
+    }
+
+    return orig_BDJSBridge_callJS(self, _cmd, method, params);
+}
+
+// Hook 抖音小游戏引擎
+static id (*orig_TTGameEngine_evaluateScript)(id self, SEL _cmd, NSString *script);
+static id hook_TTGameEngine_evaluateScript(id self, SEL _cmd, NSString *script) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_TTGameEngine_evaluateScript(self, _cmd, script);
+    }
+
+    NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
+
+    if (![modifiedScript isEqualToString:script]) {
+        NSLog(@"[Tweak] ✅ TTGameEngine evaluateScript: 已替换目标字符串");
+    }
+
+    return orig_TTGameEngine_evaluateScript(self, _cmd, modifiedScript);
+}
+
+static id (*orig_TTGameRuntime_evaluateScript)(id self, SEL _cmd, NSString *script);
+static id hook_TTGameRuntime_evaluateScript(id self, SEL _cmd, NSString *script) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_TTGameRuntime_evaluateScript(self, _cmd, script);
+    }
+
+    NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
+
+    if (![modifiedScript isEqualToString:script]) {
+        NSLog(@"[Tweak] ✅ TTGameRuntime evaluateScript: 已替换目标字符串");
+    }
+
+    return orig_TTGameRuntime_evaluateScript(self, _cmd, modifiedScript);
+}
+
+// Hook 抖音 WebView 加载
+static id (*orig_TTWebView_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
+static id hook_TTWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_TTWebView_loadRequest(self, _cmd, request);
+    }
+
+    NSLog(@"[Tweak] ℹ️ TTWebView loadRequest: URL=%@", request.URL.absoluteString);
+    return orig_TTWebView_loadRequest(self, _cmd, request);
+}
+
+static id (*orig_BDWebView_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
+static id hook_BDWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_BDWebView_loadRequest(self, _cmd, request);
+    }
+
+    NSLog(@"[Tweak] ℹ️ BDWebView loadRequest: URL=%@", request.URL.absoluteString);
+    return orig_BDWebView_loadRequest(self, _cmd, request);
+}
+
+static id (*orig_AwemeWebView_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
+static id hook_AwemeWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
+    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
+        return orig_AwemeWebView_loadRequest(self, _cmd, request);
+    }
+
+    NSLog(@"[Tweak] ℹ️ AwemeWebView loadRequest: URL=%@", request.URL.absoluteString);
+    return orig_AwemeWebView_loadRequest(self, _cmd, request);
 }
 
 #pragma mark - ========== 启用所有 Hook ==========
@@ -493,20 +617,24 @@ static id hook_MMWKWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request)
         // 方案六：NSString initWithData
         hookClass(@"NSString", @"initWithData:encoding:", (IMP)hook_NSString_initWithData_encoding, (IMP *)&orig_NSString_initWithData_encoding);
 
-        // 方案七：微信小程序特定类（如果存在）
-        Class wxJSCoreBridge = NSClassFromString(@"WXJSCoreBridge");
-        if (wxJSCoreBridge) {
-            hookClass(@"WXJSCoreBridge", @"evaluateJavaScript:", (IMP)hook_WXJSCoreBridge_evaluateJavaScript, (IMP *)&orig_WXJSCoreBridge_evaluateJavaScript);
-        } else {
-            [log appendString:@"ℹ️ WXJSCoreBridge 类未找到（非微信小程序）\n"];
-        }
+        // 方案七：抖音小程序专用
+        // 抖音 JS 引擎
+        hookClass(@"BDJSContext", @"evaluateScript:", (IMP)hook_BDJSContext_evaluateScript, (IMP *)&orig_BDJSContext_evaluateScript);
+        hookClass(@"TTJSContext", @"evaluateScript:", (IMP)hook_TTJSContext_evaluateScript, (IMP *)&orig_TTJSContext_evaluateScript);
+        hookClass(@"AwemeJSContext", @"evaluateScript:", (IMP)hook_AwemeJSContext_evaluateScript, (IMP *)&orig_AwemeJSContext_evaluateScript);
 
-        Class mmWKWebView = NSClassFromString(@"MMWKWebView");
-        if (mmWKWebView) {
-            hookClass(@"MMWKWebView", @"loadRequest:", (IMP)hook_MMWKWebView_loadRequest, (IMP *)&orig_MMWKWebView_loadRequest);
-        } else {
-            [log appendString:@"ℹ️ MMWKWebView 类未找到\n"];
-        }
+        // 抖音 JSBridge
+        hookClass(@"TTJSBridge", @"callJS:params:", (IMP)hook_TTJSBridge_callJS, (IMP *)&orig_TTJSBridge_callJS);
+        hookClass(@"BDJSBridge", @"callJS:params:", (IMP)hook_BDJSBridge_callJS, (IMP *)&orig_BDJSBridge_callJS);
+
+        // 抖音小游戏引擎
+        hookClass(@"TTGameEngine", @"evaluateScript:", (IMP)hook_TTGameEngine_evaluateScript, (IMP *)&orig_TTGameEngine_evaluateScript);
+        hookClass(@"TTGameRuntime", @"evaluateScript:", (IMP)hook_TTGameRuntime_evaluateScript, (IMP *)&orig_TTGameRuntime_evaluateScript);
+
+        // 抖音 WebView
+        hookClass(@"TTWebView", @"loadRequest:", (IMP)hook_TTWebView_loadRequest, (IMP *)&orig_TTWebView_loadRequest);
+        hookClass(@"BDWebView", @"loadRequest:", (IMP)hook_BDWebView_loadRequest, (IMP *)&orig_BDWebView_loadRequest);
+        hookClass(@"AwemeWebView", @"loadRequest:", (IMP)hook_AwemeWebView_loadRequest, (IMP *)&orig_AwemeWebView_loadRequest);
 
         self.hookEnabled = YES;
 
@@ -528,7 +656,7 @@ static id hook_MMWKWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request)
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
                                                                    message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [topVC presentViewController:alert animated:YES completion:nil];

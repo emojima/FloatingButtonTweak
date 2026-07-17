@@ -8,7 +8,7 @@
 #import <signal.h>
 
 @interface LogWindowManager : NSObject
-@property (nonatomic, strong) UIWindow *logWindow;
+@property (nonatomic, strong) UIView *logContainerView;
 @property (nonatomic, strong) UITextView *logTextView;
 @property (nonatomic, strong) UIButton *closeButton;
 @property (nonatomic, strong) UIView *titleBar;
@@ -44,6 +44,30 @@
     return self;
 }
 
+- (UIWindow *)topmostWindow {
+    NSArray *windows = nil;
+    if (@available(iOS 13.0, *)) {
+        NSMutableArray *allWindows = [NSMutableArray array];
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                [allWindows addObjectsFromArray:scene.windows];
+            }
+        }
+        windows = allWindows;
+    } else {
+        windows = [UIApplication sharedApplication].windows;
+    }
+    UIWindow *topWindow = nil;
+    for (UIWindow *window in windows) {
+        if (!window.hidden && window.alpha > 0) {
+            if (!topWindow || window.windowLevel > topWindow.windowLevel) {
+                topWindow = window;
+            }
+        }
+    }
+    return topWindow ?: [UIApplication sharedApplication].keyWindow;
+}
+
 - (void)toggleLogWindow {
     if (self.isVisible) {
         [self hideLogWindow];
@@ -53,12 +77,23 @@
 }
 
 - (void)showLogWindow {
-    if (self.logWindow) {
-        self.logWindow.hidden = NO;
+    if (self.logContainerView) {
+        self.logContainerView.hidden = NO;
         self.isVisible = YES;
-        [self.logWindow makeKeyAndVisible];
+        UIWindow *topWindow = [self topmostWindow];
+        if (topWindow) {
+            [topWindow bringSubviewToFront:self.logContainerView];
+            // 确保日志容器在悬浮按钮之下
+            UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
+            if (fb && fb.superview == topWindow) {
+                [topWindow insertSubview:self.logContainerView belowSubview:fb];
+            }
+        }
         return;
     }
+
+    UIWindow *topWindow = [self topmostWindow];
+    if (!topWindow) return;
 
     CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
     CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
@@ -67,15 +102,14 @@
     CGFloat windowX = (screenWidth - windowWidth) / 2;
     CGFloat windowY = screenHeight * 0.12;
 
-    self.logWindow = [[UIWindow alloc] initWithFrame:CGRectMake(windowX, windowY, windowWidth, windowHeight)];
-    self.logWindow.windowLevel = UIWindowLevelNormal + 1;
-    self.logWindow.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.92];
-    self.logWindow.layer.cornerRadius = 12;
-    self.logWindow.layer.masksToBounds = YES;
+    self.logContainerView = [[UIView alloc] initWithFrame:CGRectMake(windowX, windowY, windowWidth, windowHeight)];
+    self.logContainerView.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.92];
+    self.logContainerView.layer.cornerRadius = 12;
+    self.logContainerView.layer.masksToBounds = YES;
 
     self.titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, windowWidth, 36)];
     self.titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1.0];
-    [self.logWindow addSubview:self.titleBar];
+    [self.logContainerView addSubview:self.titleBar];
 
     UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleTitleBarPan:)];
     [self.titleBar addGestureRecognizer:panGesture];
@@ -104,20 +138,27 @@
     self.logTextView.showsVerticalScrollIndicator = YES;
     self.logTextView.textContainerInset = UIEdgeInsetsMake(4, 4, 4, 4);
     self.logTextView.text = self.logBuffer;
-    [self.logWindow addSubview:self.logTextView];
+    [self.logContainerView addSubview:self.logTextView];
 
-    self.logWindow.hidden = NO;
+    // 插入到 topWindow，并确保在悬浮按钮之下
+    UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
+    if (fb && fb.superview == topWindow) {
+        [topWindow insertSubview:self.logContainerView belowSubview:fb];
+    } else {
+        [topWindow addSubview:self.logContainerView];
+    }
+
+    self.logContainerView.hidden = NO;
     self.isVisible = YES;
-    [self.logWindow makeKeyAndVisible];
 }
 
 - (void)hideLogWindow {
-    self.logWindow.hidden = YES;
+    self.logContainerView.hidden = YES;
     self.isVisible = NO;
 }
 
 - (void)handleTitleBarPan:(UIPanGestureRecognizer *)gesture {
-    CGPoint translation = [gesture translationInView:self.logWindow];
+    CGPoint translation = [gesture translationInView:self.logContainerView.superview];
 
     if (gesture.state == UIGestureRecognizerStateBegan) {
         self.lastTranslation = CGPointZero;
@@ -127,7 +168,7 @@
         CGFloat deltaX = translation.x - self.lastTranslation.x;
         CGFloat deltaY = translation.y - self.lastTranslation.y;
 
-        CGRect newFrame = self.logWindow.frame;
+        CGRect newFrame = self.logContainerView.frame;
         newFrame.origin.x += deltaX;
         newFrame.origin.y += deltaY;
 
@@ -136,14 +177,14 @@
         newFrame.origin.x = MAX(0, MIN(newFrame.origin.x, screenWidth - newFrame.size.width));
         newFrame.origin.y = MAX(0, MIN(newFrame.origin.y, screenHeight - newFrame.size.height));
 
-        self.logWindow.frame = newFrame;
+        self.logContainerView.frame = newFrame;
         self.lastTranslation = translation;
     }
 
     if (gesture.state == UIGestureRecognizerStateEnded || 
         gesture.state == UIGestureRecognizerStateCancelled) {
         self.lastTranslation = CGPointZero;
-        [gesture setTranslation:CGPointZero inView:self.logWindow];
+        [gesture setTranslation:CGPointZero inView:self.logContainerView.superview];
     }
 }
 
@@ -161,6 +202,8 @@
 
         if (self.logTextView) {
             self.logTextView.text = self.logBuffer;
+            NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
+            [self.logTextView scrollRangeToVisible:bottom];
         }
     });
 }
@@ -182,6 +225,8 @@
 
         if (self.logTextView) {
             self.logTextView.text = self.logBuffer;
+            NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
+            [self.logTextView scrollRangeToVisible:bottom];
         }
     });
 }
@@ -192,7 +237,6 @@
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
 @property (nonatomic, weak) UIWindow *lastWindow;
-@property (nonatomic, assign) BOOL hookEnabled;
 @property (nonatomic, strong) NSMutableArray *hookedClasses;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
@@ -213,7 +257,6 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _hookEnabled = NO;
         _hookedClasses = [NSMutableArray array];
     }
     return self;
@@ -277,18 +320,6 @@
 - (void)ensureButtonOnTop {
     if (!self.floatingButton) return;
 
-    if (self.floatingButton.superview == [LogWindowManager sharedInstance].logWindow) {
-        CGRect oldFrame = self.floatingButton.frame;
-        [self.floatingButton removeFromSuperview];
-        UIWindow *topWindow = [self topmostWindow];
-        if (topWindow) {
-            [topWindow addSubview:self.floatingButton];
-            self.floatingButton.frame = oldFrame;
-            self.lastWindow = topWindow;
-        }
-        return;
-    }
-
     UIWindow *topWindow = [self topmostWindow];
     if (!topWindow) return;
 
@@ -301,6 +332,12 @@
     }
 
     [topWindow bringSubviewToFront:self.floatingButton];
+
+    // 确保日志窗口在悬浮按钮之下
+    LogWindowManager *logMgr = [LogWindowManager sharedInstance];
+    if (logMgr.logContainerView && logMgr.logContainerView.superview == topWindow) {
+        [topWindow insertSubview:logMgr.logContainerView belowSubview:self.floatingButton];
+    }
 }
 
 - (UIWindow *)topmostWindow {
@@ -321,7 +358,6 @@
     UIWindow *topWindow = nil;
     for (UIWindow *window in windows) {
         if (!window.hidden && window.alpha > 0) {
-            if (window == [LogWindowManager sharedInstance].logWindow) continue;
             if (!topWindow || window.windowLevel > topWindow.windowLevel) {
                 topWindow = window;
             }
@@ -342,11 +378,10 @@
                                                                    message:@"请选择要执行的功能"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
-    NSString *hookStatus = self.hookEnabled ? @" (已启用)" : @"";
     NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
 
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"修改属性词条免广告刷新次数%@", hookStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self enableAllHooks];
+    [alert addAction:[UIAlertAction actionWithTitle:@"修改属性词条免广告刷新次数 (已启用)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self showMessage:@"Hook 已启用" message:@"所有 Hook 方案已在运行中，脚本内容将在执行前自动替换。"];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -392,8 +427,8 @@
         withString:@"curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
 
     modified = [modified stringByReplacingOccurrencesOfString:
-        @".curLevel'?this.freeRefreshNum=2:this.freeRefreshNum=0"
-        withString:@".curLevel'),this.refreshNum=100,this.freeRefreshNum=100"];
+        @".curLevel\'?this.freeRefreshNum=2:this.freeRefreshNum=0"
+        withString:@".curLevel\'),this.refreshNum=100,this.freeRefreshNum=100"];
 
     modified = [modified stringByReplacingOccurrencesOfString:
         @"this.freeRefreshNum=2:this.freeRefreshNum=0"
@@ -418,10 +453,6 @@
 
 static id (*orig_JSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
 static id hook_JSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_JSContext_evaluateScript(self, _cmd, script);
-    }
-
     NSString *modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
 
     if (![modifiedScript isEqualToString:script]) {
@@ -436,10 +467,6 @@ static id hook_JSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
 
 static id (*orig_WKUserScript_initWithSource)(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly);
 static id hook_WKUserScript_initWithSource(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_WKUserScript_initWithSource(self, _cmd, source, injectionTime, forMainFrameOnly);
-    }
-
     NSString *modifiedSource = [[FloatingButtonManager sharedInstance] replaceTargetInString:source];
 
     if (![modifiedSource isEqualToString:source]) {
@@ -454,10 +481,6 @@ static id hook_WKUserScript_initWithSource(id self, SEL _cmd, NSString *source, 
 
 static id (*orig_WKWebView_loadHTMLString)(id self, SEL _cmd, NSString *string, NSURL *baseURL);
 static id hook_WKWebView_loadHTMLString(id self, SEL _cmd, NSString *string, NSURL *baseURL) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_WKWebView_loadHTMLString(self, _cmd, string, baseURL);
-    }
-
     NSString *modifiedString = [[FloatingButtonManager sharedInstance] replaceTargetInString:string];
 
     if (![modifiedString isEqualToString:string]) {
@@ -470,10 +493,6 @@ static id hook_WKWebView_loadHTMLString(id self, SEL _cmd, NSString *string, NSU
 
 static id (*orig_WKWebView_loadData)(id self, SEL _cmd, NSData *data, NSString *MIMEType, NSString *characterEncodingName, NSURL *baseURL);
 static id hook_WKWebView_loadData(id self, SEL _cmd, NSData *data, NSString *MIMEType, NSString *characterEncodingName, NSURL *baseURL) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_WKWebView_loadData(self, _cmd, data, MIMEType, characterEncodingName, baseURL);
-    }
-
     if ([MIMEType isEqualToString:@"text/html"] || [MIMEType isEqualToString:@"application/javascript"] || [MIMEType isEqualToString:@"text/javascript"]) {
         NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
         if (content) {
@@ -491,10 +510,6 @@ static id hook_WKWebView_loadData(id self, SEL _cmd, NSData *data, NSString *MIM
 
 static id (*orig_WKWebView_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
 static id hook_WKWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_WKWebView_loadRequest(self, _cmd, request);
-    }
-
     NSString *log = [NSString stringWithFormat:@"ℹ️ WKWebView loadRequest: URL=%@", request.URL.absoluteString];
     NSLog(@"[Tweak] %@", log);
     [[LogWindowManager sharedInstance] appendLog:log];
@@ -507,7 +522,7 @@ static id (*orig_NSString_stringWithContentsOfFile_encoding_error)(id self, SEL 
 static id hook_NSString_stringWithContentsOfFile_encoding_error(id self, SEL _cmd, NSString *path, NSStringEncoding enc, NSError **error) {
     id result = orig_NSString_stringWithContentsOfFile_encoding_error(self, _cmd, path, enc, error);
 
-    if ([[FloatingButtonManager sharedInstance] hookEnabled] && [result isKindOfClass:[NSString class]]) {
+    if ([result isKindOfClass:[NSString class]]) {
         NSString *content = (NSString *)result;
         if ([path hasSuffix:@".js"] || [path hasSuffix:@".html"] || [path hasSuffix:@".htm"] || [path containsString:@"javascript"] || [path containsString:@"script"]) {
             NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
@@ -527,7 +542,7 @@ static id (*orig_NSData_dataWithContentsOfFile)(id self, SEL _cmd, NSString *pat
 static id hook_NSData_dataWithContentsOfFile(id self, SEL _cmd, NSString *path) {
     id result = orig_NSData_dataWithContentsOfFile(self, _cmd, path);
 
-    if ([[FloatingButtonManager sharedInstance] hookEnabled] && [result isKindOfClass:[NSData class]]) {
+    if ([result isKindOfClass:[NSData class]]) {
         if ([path hasSuffix:@".js"] || [path containsString:@"javascript"] || [path containsString:@"script"]) {
             NSString *content = [[NSString alloc] initWithData:(NSData *)result encoding:NSUTF8StringEncoding];
             if (content) {
@@ -549,10 +564,6 @@ static id hook_NSData_dataWithContentsOfFile(id self, SEL _cmd, NSString *path) 
 
 static id (*orig_NSURLSession_dataTaskWithRequest_completion)(id self, SEL _cmd, NSURLRequest *request, id completionHandler);
 static id hook_NSURLSession_dataTaskWithRequest_completion(id self, SEL _cmd, NSURLRequest *request, id completionHandler) {
-    if (![[FloatingButtonManager sharedInstance] hookEnabled]) {
-        return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, completionHandler);
-    }
-
     id modifiedCompletion = completionHandler;
     if (completionHandler) {
         modifiedCompletion = ^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -596,7 +607,7 @@ static id (*orig_NSString_initWithData_encoding)(id self, SEL _cmd, NSData *data
 static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, NSStringEncoding encoding) {
     id result = orig_NSString_initWithData_encoding(self, _cmd, data, encoding);
 
-    if ([[FloatingButtonManager sharedInstance] hookEnabled] && [result isKindOfClass:[NSString class]]) {
+    if ([result isKindOfClass:[NSString class]]) {
         NSString *content = (NSString *)result;
         if (content.length > 100 && ([content containsString:@"this."] || [content containsString:@"function"])) {
             NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
@@ -855,7 +866,7 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
             int count = [results[targetStr] intValue];
             NSArray *addrs = addresses[targetStr];
 
-            [batchLogs addObject:[NSString stringWithFormat:@"📌 '%@' 找到 %d 处", targetStr, count]];
+            [batchLogs addObject:[NSString stringWithFormat:@"📌 \'%@\' 找到 %d 处", targetStr, count]];
 
             // 只记录前10个地址到日志
             int logCount = MIN((int)addrs.count, 10);
@@ -900,11 +911,6 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
 #pragma mark - ========== 启用所有 Hook ==========
 
 - (void)enableAllHooks {
-    if (self.hookEnabled) {
-        [self showMessage:@"Hook 已启用" message:@"所有 Hook 方案已在运行中，脚本内容将在执行前自动替换。"];
-        return;
-    }
-
     [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用所有 Hook..."];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -948,8 +954,6 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
         } else {
             [log appendString:@"⚠️ 未找到额外的 JS 相关类\n"];
         }
-
-        self.hookEnabled = YES;
 
         int successCount = 0;
         int failCount = 0;
@@ -1021,11 +1025,16 @@ static void init() {
                                                       usingBlock:^(NSNotification *note) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [[FloatingButtonManager sharedInstance] showFloatingButton];
+                [[FloatingButtonManager sharedInstance] enableAllHooks];
             });
         }];
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [[FloatingButtonManager sharedInstance] showFloatingButton];
+            FloatingButtonManager *mgr = [FloatingButtonManager sharedInstance];
+            if (!mgr.floatingButton) {
+                [mgr showFloatingButton];
+            }
+            [mgr enableAllHooks];
         });
     }
 }

@@ -4,9 +4,6 @@
 #import <WebKit/WebKit.h>
 #import <mach/mach.h>
 #import <mach/vm_map.h>
-#import <sys/mman.h>
-#import <libkern/OSCacheControl.h>
-#include <dlfcn.h>
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
@@ -155,8 +152,8 @@
         [self enableAllHooks];
     }]];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存修改" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self performWASMMemoryPatch];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self searchWASMMemory];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"功能三（敬请期待）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -476,56 +473,20 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     NSLog(@"[Tweak] AutoHook 完成: 扫描 %d 个类, Hook %d 个方法", classCount, hookCount);
 }
 
-#pragma mark - ========== 方案八：Unity WASM 内存修改 ==========
+#pragma mark - ========== 方案八：Unity WASM 内存搜索（只读，不修改）==========
 
-// Unity IL2CPP 编译后，C# 字段在内存中的布局是固定的
-// freeRefreshNum 是 int 类型，在内存中占 4 字节
-// 我们需要在进程的内存中搜索并修改这个值
-
-- (void)getSelfMemoryRange:(uintptr_t *)start size:(size_t *)size {
-    *start = 0;
-    *size = 0;
-
-    Dl_info info;
-    if (dladdr((__bridge void *)[self class], &info)) {
-        *start = (uintptr_t)info.dli_fbase;
-        *size = 0x10000;
-    }
-}
-
-- (BOOL)safeMemoryReplace:(void *)addr target:(const char *)targetStr targetLen:(size_t)targetLen newStr:(const char *)newStr newLen:(size_t)newLen {
-    if (!addr || !targetStr || !newStr) return NO;
-    if (targetLen == 0 || newLen == 0) return NO;
-
-    if (memcmp(addr, targetStr, targetLen) != 0) return NO;
-
-    kern_return_t kr = vm_write(mach_task_self(), 
-                                (vm_address_t)addr, 
-                                (vm_offset_t)newStr, 
-                                (mach_msg_type_number_t)newLen);
-
-    if (kr == KERN_SUCCESS) {
-        sys_icache_invalidate(addr, newLen);
-        return YES;
-    }
-
-    return NO;
-}
-
-- (void)performWASMMemoryPatch {
+- (void)searchWASMMemory {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        // Unity WASM 中，freeRefreshNum 相关的字符串特征（可能被 IL2CPP 元数据引用）
-        const char *targetStr = "freeRefreshNum";
-        const char *newStr = "freeRefreshNum"; // 占位，实际修改内存中的数值
+        // 搜索目标字符串列表
+        NSArray *searchStrings = @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
 
-        size_t targetLen = strlen(targetStr);
-        int foundCount = 0;
-        int modifiedCount = 0;
+        NSMutableDictionary *results = [NSMutableDictionary dictionary];
+        for (NSString *str in searchStrings) {
+            results[str] = @0;
+        }
+
         int checkedRegions = 0;
-
-        uintptr_t selfStart = 0;
-        size_t selfSize = 0;
-        [self getSelfMemoryRange:&selfStart size:&selfSize];
+        int totalRegions = 0;
 
         vm_address_t address = 0;
         vm_size_t size = 0;
@@ -539,85 +500,77 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
                                             (vm_region_info_t)&info, &infoCount, &objectName);
 
             if (kr != KERN_SUCCESS) break;
+            totalRegions++;
+
+            // 只搜索可读区域（不修改，所以不需要可写）
+            BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
+
+            if (!isReadable || size < 100) {
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
 
             checkedRegions++;
 
-            if (selfStart > 0 && address >= selfStart && address < selfStart + selfSize) {
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
+            // 搜索每个目标字符串
+            for (NSString *targetStr in searchStrings) {
+                const char *target = [targetStr UTF8String];
+                size_t targetLen = strlen(target);
 
-            BOOL isWritable = (info.protection & VM_PROT_WRITE) != 0;
-            BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
+                if (size <= targetLen) continue;
 
-            if (!isReadable || !isWritable) {
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
+                uintptr_t searchPtr = address;
+                uintptr_t endPtr = address + size;
 
-            if (size <= targetLen) {
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
+                while (searchPtr < endPtr) {
+                    if (searchPtr + targetLen > endPtr) break;
 
-            if (info.shared) {
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
+                    void *found = memmem((void *)searchPtr, endPtr - searchPtr, target, targetLen);
+                    if (!found) break;
 
-            // 搜索 freeRefreshNum 字符串
-            uintptr_t searchPtr = address;
-            uintptr_t endPtr = address + size;
+                    int currentCount = [results[targetStr] intValue];
+                    results[targetStr] = @(currentCount + 1);
 
-            while (searchPtr < endPtr) {
-                if (searchPtr + targetLen > endPtr) break;
+                    // 读取前后 32 字节的上下文用于日志
+                    uintptr_t contextStart = (uintptr_t)found - 16;
+                    if (contextStart < address) contextStart = address;
+                    size_t contextLen = 48;
+                    if (contextStart + contextLen > endPtr) contextLen = endPtr - contextStart;
 
-                void *found = memmem((void *)searchPtr, endPtr - searchPtr, targetStr, targetLen);
-                if (!found) break;
+                    NSString *context = [[NSString alloc] initWithBytes:(void *)contextStart 
+                                                                 length:contextLen 
+                                                               encoding:NSUTF8StringEncoding];
+                    if (!context) context = @"[binary data]";
 
-                foundCount++;
+                    NSLog(@"[Tweak] 🔍 Found '%@' at %p | context: %@", targetStr, found, context);
 
-                // 在找到字符串的附近搜索数值 2 或 0（int32）
-                // IL2CPP 中，字段名后面通常跟着字段偏移或默认值
-                // 这里我们尝试在前后 64 字节内搜索 0x02 0x00 0x00 0x00 或 0x00 0x00 0x00 0x00
-                uint8_t *base = (uint8_t *)found;
-                for (int offset = -64; offset <= 64; offset += 4) {
-                    uint8_t *checkAddr = base + offset;
-                    if (checkAddr < (uint8_t *)address || checkAddr >= (uint8_t *)endPtr) continue;
-
-                    // 检查是否是 int32 的 2
-                    if (checkAddr[0] == 0x02 && checkAddr[1] == 0x00 && checkAddr[2] == 0x00 && checkAddr[3] == 0x00) {
-                        // 修改为 100 (0x64)
-                        uint8_t newValue[4] = {0x64, 0x00, 0x00, 0x00};
-                        kern_return_t writeKr = vm_write(mach_task_self(), 
-                                                        (vm_address_t)checkAddr, 
-                                                        (vm_offset_t)newValue, 
-                                                        4);
-                        if (writeKr == KERN_SUCCESS) {
-                            modifiedCount++;
-                            NSLog(@"[Tweak] ✅ WASM Memory: 修改 freeRefreshNum 附近数值 at offset %d", offset);
-                        }
-                    }
+                    searchPtr = (uintptr_t)found + targetLen;
                 }
-
-                searchPtr = (uintptr_t)found + targetLen;
             }
 
             address += size;
             infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         }
 
+        // 构建结果报告
+        NSMutableString *report = [NSMutableString string];
+        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n\n", totalRegions, checkedRegions];
+
+        int totalFound = 0;
+        for (NSString *str in searchStrings) {
+            int count = [results[str] intValue];
+            totalFound += count;
+            [report appendFormat:@"%@: %d 处\n", str, count];
+        }
+
+        [report appendFormat:@"\n总计找到: %d 处", totalFound];
+
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (modifiedCount > 0) {
-                [self showMessage:@"WASM 内存修改成功" message:[NSString stringWithFormat:@"找到 %d 处 freeRefreshNum，修改 %d 处数值\n（检查 %d 个内存区域）", foundCount, modifiedCount, checkedRegions]];
-            } else if (foundCount > 0) {
-                [self showMessage:@"WASM 内存部分成功" message:[NSString stringWithFormat:@"找到 %d 处 freeRefreshNum，但未修改数值\n可能数值不在附近，需要进一步分析", foundCount]];
+            if (totalFound > 0) {
+                [self showMessage:@"内存搜索成功" message:report];
             } else {
-                [self showMessage:@"WASM 内存修改失败" message:[NSString stringWithFormat:@"未找到 freeRefreshNum 字符串\n检查 %d 个内存区域\n可能字符串被混淆或存储在只读段", checkedRegions]];
+                [self showMessage:@"内存搜索完成" message:[NSString stringWithFormat:@"%@\n\n未找到任何目标字符串，可能：\n1. 字符串被混淆\n2. 使用 IL2CPP 全局元数据存储\n3. 字段名在编译期被优化掉", report]];
             }
         });
     });

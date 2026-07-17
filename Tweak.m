@@ -695,20 +695,20 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 #pragma mark - ========== 安全的内存搜索（防崩溃）==========
 
 // 使用 vm_read 安全读取内存，避免直接访问可能不可读的页面
-static kern_return_t safe_vm_read(vm_address_t address, vm_size_t size, void **outData, vm_size_t *outSize) {
-    vm_size_t dataSize = size;
+static kern_return_t safe_vm_read(vm_address_t address, vm_size_t size, vm_offset_t *outData, mach_msg_type_number_t *outSize) {
     vm_offset_t data = 0;
+    mach_msg_type_number_t dataSize = 0;
     kern_return_t kr = vm_read(mach_task_self(), address, size, &data, &dataSize);
     if (kr == KERN_SUCCESS) {
-        *outData = (void *)data;
+        *outData = data;
         *outSize = dataSize;
     }
     return kr;
 }
 
-static void safe_vm_free(void *data, vm_size_t size) {
-    if (data && size > 0) {
-        vm_deallocate(mach_task_self(), (vm_address_t)data, size);
+static void safe_vm_free(vm_offset_t data, mach_msg_type_number_t size) {
+    if (data != 0 && size > 0) {
+        vm_deallocate(mach_task_self(), data, size);
     }
 }
 
@@ -811,8 +811,8 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
             }
 
             // 安全读取内存
-            void *copiedData = NULL;
-            vm_size_t copiedSize = 0;
+            vm_offset_t copiedData = 0;
+            mach_msg_type_number_t copiedSize = 0;
             kern_return_t readKr = safe_vm_read(address, size, &copiedData, &copiedSize);
 
             if (readKr != KERN_SUCCESS) {
@@ -835,7 +835,7 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
                 if (currentCount >= MAX_MATCHES_PER_STRING) continue;
 
                 int remaining = MAX_MATCHES_PER_STRING - currentCount;
-                int found = searchInCopiedMemory(copiedData, copiedSize, target, targetLen, 
+                int found = searchInCopiedMemory((const void *)copiedData, (size_t)copiedSize, target, targetLen, 
                                                    foundAddrs, address, remaining);
 
                 if (found > 0) {

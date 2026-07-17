@@ -1,4 +1,3 @@
-# 使用环境变量 THEOS，GitHub Actions 中会设置
 THEOS ?= $(HOME)/theos
 
 ARCHS = arm64 arm64e
@@ -11,7 +10,8 @@ FloatingButtonTweak_FILES = Tweak.xm
 
 FloatingButtonTweak_FRAMEWORKS = UIKit Foundation CoreGraphics
 
-FloatingButtonTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+# 添加 -Wno-unused-variable 忽略未使用变量警告
+FloatingButtonTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable
 
 include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk

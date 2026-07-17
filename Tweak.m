@@ -4,6 +4,8 @@
 #import <WebKit/WebKit.h>
 #import <mach/mach.h>
 #import <mach/vm_map.h>
+#import <setjmp.h>
+#import <signal.h>
 
 @interface LogWindowManager : NSObject
 @property (nonatomic, strong) UIWindow *logWindow;
@@ -12,13 +14,13 @@
 @property (nonatomic, strong) UIView *titleBar;
 @property (nonatomic, strong) NSMutableString *logBuffer;
 @property (nonatomic, assign) BOOL isVisible;
-@property (nonatomic, assign) CGPoint dragStartPoint;
-@property (nonatomic, assign) CGPoint windowStartOrigin;
+@property (nonatomic, assign) CGPoint lastTranslation;
 + (instancetype)sharedInstance;
 - (void)toggleLogWindow;
 - (void)showLogWindow;
 - (void)hideLogWindow;
 - (void)appendLog:(NSString *)log;
+- (void)appendLogsBatch:(NSArray *)logs;
 @end
 
 @implementation LogWindowManager
@@ -37,6 +39,7 @@
     if (self) {
         _logBuffer = [NSMutableString string];
         _isVisible = NO;
+        _lastTranslation = CGPointZero;
     }
     return self;
 }
@@ -64,19 +67,16 @@
     CGFloat windowX = (screenWidth - windowWidth) / 2;
     CGFloat windowY = screenHeight * 0.12;
 
-    // 日志窗口层级：UIWindowLevelNormal + 1，低于悬浮按钮（UIWindowLevelAlert + 100）
     self.logWindow = [[UIWindow alloc] initWithFrame:CGRectMake(windowX, windowY, windowWidth, windowHeight)];
     self.logWindow.windowLevel = UIWindowLevelNormal + 1;
     self.logWindow.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.92];
     self.logWindow.layer.cornerRadius = 12;
     self.logWindow.layer.masksToBounds = YES;
 
-    // 标题栏（可拖动区域）
     self.titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, windowWidth, 36)];
     self.titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1.0];
     [self.logWindow addSubview:self.titleBar];
 
-    // 添加拖动手势
     UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleTitleBarPan:)];
     [self.titleBar addGestureRecognizer:panGesture];
 
@@ -86,7 +86,6 @@
     titleLabel.font = [UIFont boldSystemFontOfSize:13];
     [self.titleBar addSubview:titleLabel];
 
-    // 关闭按钮
     self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.closeButton.frame = CGRectMake(windowWidth - 50, 4, 40, 28);
     [self.closeButton setTitle:@"✕" forState:UIControlStateNormal];
@@ -95,7 +94,6 @@
     [self.closeButton addTarget:self action:@selector(hideLogWindow) forControlEvents:UIControlEventTouchUpInside];
     [self.titleBar addSubview:self.closeButton];
 
-    // 日志文本视图
     self.logTextView = [[UITextView alloc] initWithFrame:CGRectMake(8, 44, windowWidth - 16, windowHeight - 52)];
     self.logTextView.backgroundColor = [UIColor clearColor];
     self.logTextView.textColor = [UIColor colorWithRed:0.8 green:0.9 blue:1.0 alpha:1.0];
@@ -122,26 +120,30 @@
     CGPoint translation = [gesture translationInView:self.logWindow];
 
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        self.dragStartPoint = [gesture locationInView:self.logWindow];
-        self.windowStartOrigin = self.logWindow.frame.origin;
-    } else if (gesture.state == UIGestureRecognizerStateChanged) {
-        CGPoint currentPoint = [gesture locationInView:self.logWindow];
-        CGFloat deltaX = currentPoint.x - self.dragStartPoint.x;
-        CGFloat deltaY = currentPoint.y - self.dragStartPoint.y;
+        self.lastTranslation = CGPointZero;
+    }
+
+    if (gesture.state == UIGestureRecognizerStateChanged) {
+        CGFloat deltaX = translation.x - self.lastTranslation.x;
+        CGFloat deltaY = translation.y - self.lastTranslation.y;
 
         CGRect newFrame = self.logWindow.frame;
-        newFrame.origin.x = self.windowStartOrigin.x + deltaX;
-        newFrame.origin.y = self.windowStartOrigin.y + deltaY;
+        newFrame.origin.x += deltaX;
+        newFrame.origin.y += deltaY;
 
-        // 边界限制
         CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
         CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
         newFrame.origin.x = MAX(0, MIN(newFrame.origin.x, screenWidth - newFrame.size.width));
         newFrame.origin.y = MAX(0, MIN(newFrame.origin.y, screenHeight - newFrame.size.height));
 
         self.logWindow.frame = newFrame;
-    } else if (gesture.state == UIGestureRecognizerStateEnded) {
-        self.windowStartOrigin = self.logWindow.frame.origin;
+        self.lastTranslation = translation;
+    }
+
+    if (gesture.state == UIGestureRecognizerStateEnded || 
+        gesture.state == UIGestureRecognizerStateCancelled) {
+        self.lastTranslation = CGPointZero;
+        [gesture setTranslation:CGPointZero inView:self.logWindow];
     }
 }
 
@@ -156,6 +158,27 @@
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.logBuffer appendString:formattedLog];
+
+        if (self.logTextView) {
+            self.logTextView.text = self.logBuffer;
+        }
+    });
+}
+
+- (void)appendLogsBatch:(NSArray *)logs {
+    if (!logs || logs.count == 0) return;
+
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"HH:mm:ss"];
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+
+    NSMutableString *batch = [NSMutableString string];
+    for (NSString *log in logs) {
+        [batch appendFormat:@"[%@] %@\n", timestamp, log];
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.logBuffer appendString:batch];
 
         if (self.logTextView) {
             self.logTextView.text = self.logBuffer;
@@ -254,6 +277,18 @@
 - (void)ensureButtonOnTop {
     if (!self.floatingButton) return;
 
+    if (self.floatingButton.superview == [LogWindowManager sharedInstance].logWindow) {
+        CGRect oldFrame = self.floatingButton.frame;
+        [self.floatingButton removeFromSuperview];
+        UIWindow *topWindow = [self topmostWindow];
+        if (topWindow) {
+            [topWindow addSubview:self.floatingButton];
+            self.floatingButton.frame = oldFrame;
+            self.lastWindow = topWindow;
+        }
+        return;
+    }
+
     UIWindow *topWindow = [self topmostWindow];
     if (!topWindow) return;
 
@@ -286,6 +321,7 @@
     UIWindow *topWindow = nil;
     for (UIWindow *window in windows) {
         if (!window.hidden && window.alpha > 0) {
+            if (window == [LogWindowManager sharedInstance].logWindow) continue;
             if (!topWindow || window.windowLevel > topWindow.windowLevel) {
                 topWindow = window;
             }
@@ -656,28 +692,75 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     [[LogWindowManager sharedInstance] appendLog:log];
 }
 
+#pragma mark - ========== 安全的内存搜索（防崩溃）==========
+
+// 使用 vm_read 安全读取内存，避免直接访问可能不可读的页面
+static kern_return_t safe_vm_read(vm_address_t address, vm_size_t size, void **outData, vm_size_t *outSize) {
+    vm_size_t dataSize = size;
+    vm_offset_t data = 0;
+    kern_return_t kr = vm_read(mach_task_self(), address, size, &data, &dataSize);
+    if (kr == KERN_SUCCESS) {
+        *outData = (void *)data;
+        *outSize = dataSize;
+    }
+    return kr;
+}
+
+static void safe_vm_free(void *data, vm_size_t size) {
+    if (data && size > 0) {
+        vm_deallocate(mach_task_self(), (vm_address_t)data, size);
+    }
+}
+
+// 在复制的内存中搜索字符串，避免直接访问原始内存
+static int searchInCopiedMemory(const void *data, size_t dataSize, const char *target, size_t targetLen, 
+                                  NSMutableArray *foundAddresses, vm_address_t baseAddr, int maxMatches) {
+    int count = 0;
+    const uint8_t *ptr = (const uint8_t *)data;
+    const uint8_t *end = ptr + dataSize;
+
+    while (ptr < end - targetLen && count < maxMatches) {
+        void *found = memmem(ptr, end - ptr, target, targetLen);
+        if (!found) break;
+
+        vm_address_t offset = (vm_address_t)((const uint8_t *)found - (const uint8_t *)data);
+        vm_address_t absoluteAddr = baseAddr + offset;
+        [foundAddresses addObject:[NSNumber numberWithUnsignedLongLong:absoluteAddr]];
+        count++;
+
+        ptr = (const uint8_t *)found + targetLen;
+    }
+
+    return count;
+}
+
 #pragma mark - ========== 方案八：Unity WASM 内存搜索（安全版本，防闪退）==========
 
 - (void)searchWASMMemory {
-    [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索..."];
+    [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索（安全模式）..."];
     [[LogWindowManager sharedInstance] showLogWindow];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         NSArray *searchStrings = @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
 
         NSMutableDictionary *results = [NSMutableDictionary dictionary];
+        NSMutableDictionary *addresses = [NSMutableDictionary dictionary];
         for (NSString *str in searchStrings) {
             results[str] = @0;
+            addresses[str] = [NSMutableArray array];
         }
 
         int checkedRegions = 0;
         int totalRegions = 0;
         int skippedRegions = 0;
+        int readFailedRegions = 0;
 
         NSTimeInterval startTime = [[NSDate date] timeIntervalSince1970];
-        NSTimeInterval maxDuration = 8.0;
+        NSTimeInterval maxDuration = 10.0;
 
-        const vm_size_t MAX_REGION_SIZE = 50 * 1024 * 1024;
+        const vm_size_t MAX_REGION_SIZE = 10 * 1024 * 1024; // 10MB，更小的块
+        const int MAX_MATCHES_PER_STRING = 50; // 每个字符串最多记录50个地址
+        const int MAX_LOG_BATCH_SIZE = 20; // 批量日志大小
 
         vm_address_t address = 0;
         vm_size_t size = 0;
@@ -688,7 +771,7 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
         while (1) {
             NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
             if (currentTime - startTime > maxDuration) {
-                NSString *log = @"⏱️ 搜索超时（8秒），提前结束";
+                NSString *log = @"⏱️ 搜索超时（10秒），提前结束";
                 NSLog(@"[Tweak] %@", log);
                 [[LogWindowManager sharedInstance] appendLog:log];
                 break;
@@ -712,9 +795,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
             if (size > MAX_REGION_SIZE) {
                 skippedRegions++;
-                NSString *log = [NSString stringWithFormat:@"⚠️ 跳过超大区域: %p, size=%.1fMB", (void *)address, size / (1024.0 * 1024.0)];
-                NSLog(@"[Tweak] %@", log);
-                [[LogWindowManager sharedInstance] appendLog:log];
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
@@ -722,55 +802,79 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
             checkedRegions++;
 
-            if (checkedRegions % 50 == 0) {
-                [[LogWindowManager sharedInstance] appendLog:[NSString stringWithFormat:@"📊 已检查 %d 个区域...", checkedRegions]];
-                [NSThread sleepForTimeInterval:0.01];
+            // 每100个区域批量输出一次日志，减少UI更新频率
+            if (checkedRegions % 100 == 0) {
+                NSString *log = [NSString stringWithFormat:@"📊 已检查 %d 个区域...", checkedRegions];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                [NSThread sleepForTimeInterval:0.005];
             }
 
+            // 安全读取内存
+            void *copiedData = NULL;
+            vm_size_t copiedSize = 0;
+            kern_return_t readKr = safe_vm_read(address, size, &copiedData, &copiedSize);
+
+            if (readKr != KERN_SUCCESS) {
+                readFailedRegions++;
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            // 在复制的内存中搜索
             for (NSString *targetStr in searchStrings) {
                 const char *target = [targetStr UTF8String];
                 size_t targetLen = strlen(target);
 
-                if (size <= targetLen) continue;
+                if (copiedSize <= targetLen) continue;
 
-                uintptr_t searchPtr = address;
-                uintptr_t endPtr = address + size;
-                int matchCount = 0;
-                const int MAX_MATCHES_PER_REGION = 10;
+                NSMutableArray *foundAddrs = addresses[targetStr];
+                int currentCount = [results[targetStr] intValue];
 
-                while (searchPtr < endPtr) {
-                    if ([[NSDate date] timeIntervalSince1970] - startTime > maxDuration) {
-                        break;
-                    }
+                if (currentCount >= MAX_MATCHES_PER_STRING) continue;
 
-                    if (searchPtr + targetLen > endPtr) break;
+                int remaining = MAX_MATCHES_PER_STRING - currentCount;
+                int found = searchInCopiedMemory(copiedData, copiedSize, target, targetLen, 
+                                                   foundAddrs, address, remaining);
 
-                    void *found = memmem((void *)searchPtr, endPtr - searchPtr, target, targetLen);
-                    if (!found) break;
-
-                    int currentCount = [results[targetStr] intValue];
-                    results[targetStr] = @(currentCount + 1);
-                    matchCount++;
-
-                    if (matchCount <= MAX_MATCHES_PER_REGION) {
-                        NSString *log = [NSString stringWithFormat:@"🔍 Found '%@' at %p", targetStr, found];
-                        NSLog(@"[Tweak] %@", log);
-                        [[LogWindowManager sharedInstance] appendLog:log];
-                    } else if (matchCount == MAX_MATCHES_PER_REGION + 1) {
-                        NSString *log = [NSString stringWithFormat:@"🔍 '%@' 在区域 %p 还有更多匹配...", targetStr, (void *)address];
-                        [[LogWindowManager sharedInstance] appendLog:log];
-                    }
-
-                    searchPtr = (uintptr_t)found + targetLen;
+                if (found > 0) {
+                    results[targetStr] = @(currentCount + found);
                 }
             }
+
+            safe_vm_free(copiedData, copiedSize);
 
             address += size;
             infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         }
 
+        // 批量输出找到的地址（限制数量）
+        NSMutableArray *batchLogs = [NSMutableArray array];
+        for (NSString *targetStr in searchStrings) {
+            int count = [results[targetStr] intValue];
+            NSArray *addrs = addresses[targetStr];
+
+            [batchLogs addObject:[NSString stringWithFormat:@"📌 '%@' 找到 %d 处", targetStr, count]];
+
+            // 只记录前10个地址到日志
+            int logCount = MIN((int)addrs.count, 10);
+            for (int i = 0; i < logCount; i++) {
+                NSNumber *addr = addrs[i];
+                [batchLogs addObject:[NSString stringWithFormat:@"   🔍 at %p", (void *)[addr unsignedLongLongValue]]];
+            }
+            if (addrs.count > 10) {
+                [batchLogs addObject:[NSString stringWithFormat:@"   ... 还有 %lu 处", (unsigned long)(addrs.count - 10)]];
+            }
+        }
+
+        if (batchLogs.count > 0) {
+            [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
+        }
+
         NSMutableString *report = [NSMutableString string];
-        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n", totalRegions, checkedRegions, skippedRegions];
+        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n读取失败: %d\n", 
+         totalRegions, checkedRegions, skippedRegions, readFailedRegions];
 
         int totalFound = 0;
         for (NSString *str in searchStrings) {

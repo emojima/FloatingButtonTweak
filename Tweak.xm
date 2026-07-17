@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+// ========== 悬浮按钮管理器 ==========
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) UIWindow *overlayWindow;
@@ -115,18 +116,19 @@
 
 @end
 
-%hook UIApplication
-
-- (void)applicationDidFinishLaunching:(id)arg1 {
-    %orig;
-    
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [[FloatingButtonManager sharedInstance] showFloatingButton];
-    });
+// ========== 构造函数：dylib 加载时自动执行 ==========
+// 不需要 plist，dylib 被注入后自动运行
+__attribute__((constructor))
+static void init() {
+    @autoreleasepool {
+        // 等待应用启动完成
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [[FloatingButtonManager sharedInstance] showFloatingButton];
+        });
+    }
 }
 
-%end
-
+// ========== Hook UIWindow 确保不被覆盖 ==========
 %hook UIWindow
 
 - (void)makeKeyAndVisible {

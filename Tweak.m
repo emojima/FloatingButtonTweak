@@ -9,8 +9,11 @@
 @property (nonatomic, strong) UIWindow *logWindow;
 @property (nonatomic, strong) UITextView *logTextView;
 @property (nonatomic, strong) UIButton *closeButton;
+@property (nonatomic, strong) UIView *titleBar;
 @property (nonatomic, strong) NSMutableString *logBuffer;
 @property (nonatomic, assign) BOOL isVisible;
+@property (nonatomic, assign) CGPoint dragStartPoint;
+@property (nonatomic, assign) CGPoint windowStartOrigin;
 + (instancetype)sharedInstance;
 - (void)toggleLogWindow;
 - (void)showLogWindow;
@@ -57,26 +60,31 @@
     CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
     CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
     CGFloat windowWidth = screenWidth * 0.9;
-    CGFloat windowHeight = screenHeight * 0.6;
+    CGFloat windowHeight = screenHeight * 0.55;
     CGFloat windowX = (screenWidth - windowWidth) / 2;
-    CGFloat windowY = screenHeight * 0.15;
+    CGFloat windowY = screenHeight * 0.12;
 
+    // 日志窗口层级：UIWindowLevelNormal + 1，低于悬浮按钮（UIWindowLevelAlert + 100）
     self.logWindow = [[UIWindow alloc] initWithFrame:CGRectMake(windowX, windowY, windowWidth, windowHeight)];
-    self.logWindow.windowLevel = UIWindowLevelAlert + 100;
+    self.logWindow.windowLevel = UIWindowLevelNormal + 1;
     self.logWindow.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.92];
     self.logWindow.layer.cornerRadius = 12;
     self.logWindow.layer.masksToBounds = YES;
 
-    // 标题栏
-    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, windowWidth, 36)];
-    titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1.0];
-    [self.logWindow addSubview:titleBar];
+    // 标题栏（可拖动区域）
+    self.titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, windowWidth, 36)];
+    self.titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1.0];
+    [self.logWindow addSubview:self.titleBar];
+
+    // 添加拖动手势
+    UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleTitleBarPan:)];
+    [self.titleBar addGestureRecognizer:panGesture];
 
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, windowWidth - 80, 36)];
-    titleLabel.text = @"📋 Tweak 日志";
+    titleLabel.text = @"📋 Tweak 日志（拖动标题栏移动）";
     titleLabel.textColor = [UIColor whiteColor];
-    titleLabel.font = [UIFont boldSystemFontOfSize:14];
-    [titleBar addSubview:titleLabel];
+    titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [self.titleBar addSubview:titleLabel];
 
     // 关闭按钮
     self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -85,7 +93,7 @@
     [self.closeButton setTitleColor:[UIColor colorWithRed:1.0 green:0.3 blue:0.3 alpha:1.0] forState:UIControlStateNormal];
     self.closeButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
     [self.closeButton addTarget:self action:@selector(hideLogWindow) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:self.closeButton];
+    [self.titleBar addSubview:self.closeButton];
 
     // 日志文本视图
     self.logTextView = [[UITextView alloc] initWithFrame:CGRectMake(8, 44, windowWidth - 16, windowHeight - 52)];
@@ -110,6 +118,33 @@
     self.isVisible = NO;
 }
 
+- (void)handleTitleBarPan:(UIPanGestureRecognizer *)gesture {
+    CGPoint translation = [gesture translationInView:self.logWindow];
+
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.dragStartPoint = [gesture locationInView:self.logWindow];
+        self.windowStartOrigin = self.logWindow.frame.origin;
+    } else if (gesture.state == UIGestureRecognizerStateChanged) {
+        CGPoint currentPoint = [gesture locationInView:self.logWindow];
+        CGFloat deltaX = currentPoint.x - self.dragStartPoint.x;
+        CGFloat deltaY = currentPoint.y - self.dragStartPoint.y;
+
+        CGRect newFrame = self.logWindow.frame;
+        newFrame.origin.x = self.windowStartOrigin.x + deltaX;
+        newFrame.origin.y = self.windowStartOrigin.y + deltaY;
+
+        // 边界限制
+        CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
+        CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+        newFrame.origin.x = MAX(0, MIN(newFrame.origin.x, screenWidth - newFrame.size.width));
+        newFrame.origin.y = MAX(0, MIN(newFrame.origin.y, screenHeight - newFrame.size.height));
+
+        self.logWindow.frame = newFrame;
+    } else if (gesture.state == UIGestureRecognizerStateEnded) {
+        self.windowStartOrigin = self.logWindow.frame.origin;
+    }
+}
+
 - (void)appendLog:(NSString *)log {
     if (!log || log.length == 0) return;
 
@@ -124,7 +159,6 @@
 
         if (self.logTextView) {
             self.logTextView.text = self.logBuffer;
-            // 不自动滚动，保持用户当前滚动位置
         }
     });
 }
@@ -622,12 +656,13 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     [[LogWindowManager sharedInstance] appendLog:log];
 }
 
-#pragma mark - ========== 方案八：Unity WASM 内存搜索（只读，不修改）==========
+#pragma mark - ========== 方案八：Unity WASM 内存搜索（安全版本，防闪退）==========
 
 - (void)searchWASMMemory {
     [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索..."];
+    [[LogWindowManager sharedInstance] showLogWindow];
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         NSArray *searchStrings = @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
 
         NSMutableDictionary *results = [NSMutableDictionary dictionary];
@@ -637,6 +672,12 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
         int checkedRegions = 0;
         int totalRegions = 0;
+        int skippedRegions = 0;
+
+        NSTimeInterval startTime = [[NSDate date] timeIntervalSince1970];
+        NSTimeInterval maxDuration = 8.0;
+
+        const vm_size_t MAX_REGION_SIZE = 50 * 1024 * 1024;
 
         vm_address_t address = 0;
         vm_size_t size = 0;
@@ -645,6 +686,14 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
         memory_object_name_t objectName = MACH_PORT_NULL;
 
         while (1) {
+            NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
+            if (currentTime - startTime > maxDuration) {
+                NSString *log = @"⏱️ 搜索超时（8秒），提前结束";
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                break;
+            }
+
             kern_return_t kr = vm_region_64(mach_task_self(), &address, &size, 
                                             VM_REGION_BASIC_INFO_64, 
                                             (vm_region_info_t)&info, &infoCount, &objectName);
@@ -654,13 +703,29 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
             BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
 
-            if (!isReadable || size < 100) {
+            if (!isReadable || size < 10) {
+                skippedRegions++;
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            if (size > MAX_REGION_SIZE) {
+                skippedRegions++;
+                NSString *log = [NSString stringWithFormat:@"⚠️ 跳过超大区域: %p, size=%.1fMB", (void *)address, size / (1024.0 * 1024.0)];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
             }
 
             checkedRegions++;
+
+            if (checkedRegions % 50 == 0) {
+                [[LogWindowManager sharedInstance] appendLog:[NSString stringWithFormat:@"📊 已检查 %d 个区域...", checkedRegions]];
+                [NSThread sleepForTimeInterval:0.01];
+            }
 
             for (NSString *targetStr in searchStrings) {
                 const char *target = [targetStr UTF8String];
@@ -670,8 +735,14 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
                 uintptr_t searchPtr = address;
                 uintptr_t endPtr = address + size;
+                int matchCount = 0;
+                const int MAX_MATCHES_PER_REGION = 10;
 
                 while (searchPtr < endPtr) {
+                    if ([[NSDate date] timeIntervalSince1970] - startTime > maxDuration) {
+                        break;
+                    }
+
                     if (searchPtr + targetLen > endPtr) break;
 
                     void *found = memmem((void *)searchPtr, endPtr - searchPtr, target, targetLen);
@@ -679,10 +750,16 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
                     int currentCount = [results[targetStr] intValue];
                     results[targetStr] = @(currentCount + 1);
+                    matchCount++;
 
-                    NSString *log = [NSString stringWithFormat:@"🔍 Found '%@' at %p", targetStr, found];
-                    NSLog(@"[Tweak] %@", log);
-                    [[LogWindowManager sharedInstance] appendLog:log];
+                    if (matchCount <= MAX_MATCHES_PER_REGION) {
+                        NSString *log = [NSString stringWithFormat:@"🔍 Found '%@' at %p", targetStr, found];
+                        NSLog(@"[Tweak] %@", log);
+                        [[LogWindowManager sharedInstance] appendLog:log];
+                    } else if (matchCount == MAX_MATCHES_PER_REGION + 1) {
+                        NSString *log = [NSString stringWithFormat:@"🔍 '%@' 在区域 %p 还有更多匹配...", targetStr, (void *)address];
+                        [[LogWindowManager sharedInstance] appendLog:log];
+                    }
 
                     searchPtr = (uintptr_t)found + targetLen;
                 }
@@ -693,7 +770,7 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
         }
 
         NSMutableString *report = [NSMutableString string];
-        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n", totalRegions, checkedRegions];
+        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n", totalRegions, checkedRegions, skippedRegions];
 
         int totalFound = 0;
         for (NSString *str in searchStrings) {
@@ -702,7 +779,7 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             [report appendFormat:@"%@: %d 处\n", str, count];
         }
 
-        [report appendFormat:@"总计找到: %d 处", totalFound];
+        [report appendFormat:@"\n总计找到: %d 处", totalFound];
 
         [[LogWindowManager sharedInstance] appendLog:report];
 

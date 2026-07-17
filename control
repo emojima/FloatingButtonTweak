@@ -1,0 +1,9 @@
+Package: com.yourcompany.floatingbuttontweak
+Name: FloatingButtonTweak
+Depends: mobilesubstrate, firmware (>= 13.0)
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: 注入APP显示绝对置顶悬浮按钮，点击弹出提示窗口
+Maintainer: Your Name
+Author: Your Name
+Section: Tweaks

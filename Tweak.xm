@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-// ========== 悬浮按钮管理器 ==========
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) UIWindow *overlayWindow;
@@ -21,13 +20,11 @@
 }
 
 - (void)showFloatingButton {
-    if (self.overlayWindow) return;
+    if (self.floatingButton) return;
     
-    self.overlayWindow = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
-    self.overlayWindow.windowLevel = UIWindowLevelAlert + 1000;
-    self.overlayWindow.backgroundColor = [UIColor clearColor];
-    self.overlayWindow.userInteractionEnabled = YES;
-    self.overlayWindow.hidden = NO;
+    // 找到当前应用的 keyWindow，在其上添加按钮
+    UIWindow *keyWindow = [self keyWindow];
+    if (!keyWindow) return;
     
     CGFloat buttonSize = 55.0;
     CGFloat padding = 20.0;
@@ -58,12 +55,19 @@
     UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [self.floatingButton addGestureRecognizer:panGesture];
     
-    [self.overlayWindow addSubview:self.floatingButton];
-    [self.overlayWindow makeKeyAndVisible];
+    // 添加到应用本身的 window 上，而不是创建新 window
+    [keyWindow addSubview:self.floatingButton];
+    
+    // 确保按钮在最上层
+    [keyWindow bringSubviewToFront:self.floatingButton];
 }
 
 - (void)buttonTapped:(UIButton *)sender {
-    UIViewController *topVC = [self topViewController];
+    // 使用应用自身的 window 来弹窗，而不是 overlayWindow
+    UIWindow *keyWindow = [self keyWindow];
+    if (!keyWindow) return;
+    
+    UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
     
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🎉 Tweak 注入成功"
@@ -75,7 +79,14 @@
         [self hideFloatingButton];
     }]];
     
-    [topVC presentViewController:alert animated:YES completion:nil];
+    // 确保在主线程
+    if ([NSThread isMainThread]) {
+        [topVC presentViewController:alert animated:YES completion:nil];
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [topVC presentViewController:alert animated:YES completion:nil];
+        });
+    }
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
@@ -86,27 +97,22 @@
 }
 
 - (void)hideFloatingButton {
-    [self.overlayWindow removeFromSuperview];
-    self.overlayWindow = nil;
+    [self.floatingButton removeFromSuperview];
     self.floatingButton = nil;
 }
 
-- (UIViewController *)topViewController {
-    UIWindow *window = nil;
-    
+- (UIWindow *)keyWindow {
     if (@available(iOS 13.0, *)) {
         for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
             if (scene.activationState == UISceneActivationStateForegroundActive) {
-                window = scene.windows.firstObject;
-                break;
+                return scene.windows.firstObject;
             }
         }
     }
-    
-    if (!window) {
-        window = [UIApplication sharedApplication].keyWindow;
-    }
-    
+    return [UIApplication sharedApplication].keyWindow;
+}
+
+- (UIViewController *)topViewControllerFromWindow:(UIWindow *)window {
     UIViewController *topVC = window.rootViewController;
     while (topVC.presentedViewController) {
         topVC = topVC.presentedViewController;
@@ -117,29 +123,22 @@
 @end
 
 // ========== 构造函数：dylib 加载时自动执行 ==========
-// 不需要 plist，dylib 被注入后自动运行
 __attribute__((constructor))
 static void init() {
     @autoreleasepool {
-        // 等待应用启动完成
+        // 监听应用启动完成通知
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                          object:nil
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *note) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [[FloatingButtonManager sharedInstance] showFloatingButton];
+            });
+        }];
+        
+        // 如果应用已经启动，直接显示
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [[FloatingButtonManager sharedInstance] showFloatingButton];
         });
     }
 }
-
-// ========== Hook UIWindow 确保不被覆盖 ==========
-%hook UIWindow
-
-- (void)makeKeyAndVisible {
-    %orig;
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        FloatingButtonManager *manager = [FloatingButtonManager sharedInstance];
-        if (manager.overlayWindow) {
-            [manager.overlayWindow makeKeyAndVisible];
-        }
-    });
-}
-
-%end

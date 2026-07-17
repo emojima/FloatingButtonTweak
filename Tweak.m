@@ -1,15 +1,14 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#import <mach/mach.h>
-#import <mach/vm_map.h>
-#import <sys/mman.h>
-#import <libkern/OSCacheControl.h>
-#include <dlfcn.h>
+#import <JavaScriptCore/JavaScriptCore.h>
+#import <WebKit/WebKit.h>
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
 @property (nonatomic, weak) UIWindow *lastWindow;
+@property (nonatomic, assign) BOOL jsHookEnabled;
+@property (nonatomic, assign) BOOL wkHookEnabled;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -24,6 +23,15 @@
         instance = [[self alloc] init];
     });
     return instance;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _jsHookEnabled = NO;
+        _wkHookEnabled = NO;
+    }
+    return self;
 }
 
 - (void)showFloatingButton {
@@ -136,8 +144,17 @@
                                                                    message:@"请选择要执行的功能"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"修改属性词条免广告刷新次数" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self performMemoryPatch];
+    NSString *hookStatus = @"";
+    if (self.jsHookEnabled && self.wkHookEnabled) {
+        hookStatus = @" (已启用)";
+    } else if (self.jsHookEnabled) {
+        hookStatus = @" (JS已启用)";
+    } else if (self.wkHookEnabled) {
+        hookStatus = @" (WK已启用)";
+    }
+
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"修改属性词条免广告刷新次数%@", hookStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self enableScriptHooks];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"功能二（敬请期待）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -159,138 +176,102 @@
     });
 }
 
-// ========== 获取自身 dylib 的内存范围 ==========
-- (void)getSelfMemoryRange:(uintptr_t *)start size:(size_t *)size {
-    *start = 0;
-    *size = 0;
-
-    Dl_info info;
-    if (dladdr((__bridge void *)[self class], &info)) {
-        *start = (uintptr_t)info.dli_fbase;
-        *size = 0x10000; // 64KB 足够覆盖 dylib
-    }
-}
-
-// ========== 使用 vm_write 安全修改内存（非越狱设备友好）==========
-- (BOOL)safeMemoryReplace:(void *)addr target:(const char *)targetStr targetLen:(size_t)targetLen newStr:(const char *)newStr newLen:(size_t)newLen {
-    if (!addr || !targetStr || !newStr) return NO;
-    if (targetLen == 0 || newLen == 0) return NO;
-
-    // 验证目标地址确实包含目标字符串
-    if (memcmp(addr, targetStr, targetLen) != 0) return NO;
-
-    // 使用 vm_write 替代 memcpy + mprotect
-    // vm_write 不需要修改页面权限，更安全
-    kern_return_t kr = vm_write(mach_task_self(), 
-                                (vm_address_t)addr, 
-                                (vm_offset_t)newStr, 
-                                (mach_msg_type_number_t)newLen);
-
-    if (kr == KERN_SUCCESS) {
-        // 刷新指令缓存
-        sys_icache_invalidate(addr, newLen);
-        return YES;
+// ========== 方案一：Hook JSContext 的 evaluateScript 方法 ==========
+static id (*orig_JSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
+static id hook_JSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
+    if (![[FloatingButtonManager sharedInstance] jsHookEnabled]) {
+        return orig_JSContext_evaluateScript(self, _cmd, script);
     }
 
-    return NO;
+    NSString *modifiedScript = [script stringByReplacingOccurrencesOfString:
+        @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0"
+        withString:@".curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
+
+    if (![modifiedScript isEqualToString:script]) {
+        NSLog(@"[Tweak] JSContext evaluateScript: 已替换目标字符串");
+    }
+
+    return orig_JSContext_evaluateScript(self, _cmd, modifiedScript);
 }
 
-// ========== 使用 vm_region 安全搜索内存（非越狱设备友好）==========
-- (void)performMemoryPatch {
+// ========== 方案二：Hook WKUserScript 的 initWithSource ==========
+static id (*orig_WKUserScript_initWithSource)(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly);
+static id hook_WKUserScript_initWithSource(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly) {
+    if (![[FloatingButtonManager sharedInstance] wkHookEnabled]) {
+        return orig_WKUserScript_initWithSource(self, _cmd, source, injectionTime, forMainFrameOnly);
+    }
+
+    NSString *modifiedSource = [source stringByReplacingOccurrencesOfString:
+        @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0"
+        withString:@".curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
+
+    if (![modifiedSource isEqualToString:source]) {
+        NSLog(@"[Tweak] WKUserScript initWithSource: 已替换目标字符串");
+    }
+
+    return orig_WKUserScript_initWithSource(self, _cmd, modifiedSource, injectionTime, forMainFrameOnly);
+}
+
+// ========== 启用脚本 Hook ==========
+- (void)enableScriptHooks {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        const char *targetStr = ".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0,this.startChooseCount=0,this.ChooseCount=0,this.isRevive=!1,this.isClickVideo=!1,this.needShowIdList=null";
-        const char *newStr = ".curLevel),this.refreshNum=100,this.freeRefreshNum=100,this.startChooseCount=0,this.ChooseCount=0,this.isRevive=!1,this.isClickVideo=!1,this.needShowIdList=null";
+        BOOL jsSuccess = NO;
+        BOOL wkSuccess = NO;
+        NSString *errorMsg = @"";
 
-        size_t targetLen = strlen(targetStr);
-        size_t newLen = strlen(newStr);
-        int replaceCount = 0;
-        int checkedRegions = 0;
-        int skippedRegions = 0;
-
-        // 获取自身 dylib 的内存范围
-        uintptr_t selfStart = 0;
-        size_t selfSize = 0;
-        [self getSelfMemoryRange:&selfStart size:&selfSize];
-
-        vm_address_t address = 0;
-        vm_size_t size = 0;
-        vm_region_basic_info_data_64_t info;
-        mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-        memory_object_name_t objectName = MACH_PORT_NULL;
-
-        while (1) {
-            kern_return_t kr = vm_region_64(mach_task_self(), &address, &size, 
-                                            VM_REGION_BASIC_INFO_64, 
-                                            (vm_region_info_t)&info, &infoCount, &objectName);
-
-            if (kr != KERN_SUCCESS) break;
-
-            checkedRegions++;
-
-            // 跳过自身 dylib 的内存区域
-            if (selfStart > 0 && address >= selfStart && address < selfStart + selfSize) {
-                skippedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-
-            // ===== 关键：只搜索已经可写的内存区域 =====
-            // 非越狱设备上，修改只读内存会触发代码签名杀死进程
-            BOOL isWritable = (info.protection & VM_PROT_WRITE) != 0;
-            BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
-
-            // 跳过不可读或不可写的区域
-            if (!isReadable || !isWritable) {
-                skippedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-
-            // 跳过过小的区域
-            if (size <= targetLen) {
-                skippedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-
-            // 跳过共享库区域（通常是只读的）
-            if (info.shared) {
-                skippedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-
-            // 安全搜索该区域
-            uintptr_t searchPtr = address;
-            uintptr_t endPtr = address + size;
-
-            while (searchPtr < endPtr) {
-                if (searchPtr + targetLen > endPtr) break;
-
-                void *found = memmem((void *)searchPtr, endPtr - searchPtr, targetStr, targetLen);
-                if (!found) break;
-
-                // 执行替换
-                if ([self safeMemoryReplace:found target:targetStr targetLen:targetLen newStr:newStr newLen:newLen]) {
-                    replaceCount++;
+        // 方案一：Hook JSContext
+        if (!self.jsHookEnabled) {
+            Class jsContextClass = NSClassFromString(@"JSContext");
+            if (jsContextClass) {
+                SEL evaluateScriptSEL = NSSelectorFromString(@"evaluateScript:");
+                Method origMethod = class_getInstanceMethod(jsContextClass, evaluateScriptSEL);
+                if (origMethod) {
+                    orig_JSContext_evaluateScript = (id (*)(id, SEL, NSString *))method_getImplementation(origMethod);
+                    method_setImplementation(origMethod, (IMP)hook_JSContext_evaluateScript);
+                    self.jsHookEnabled = YES;
+                    jsSuccess = YES;
+                    NSLog(@"[Tweak] JSContext evaluateScript: Hook 成功");
+                } else {
+                    errorMsg = [errorMsg stringByAppendingString:@"JSContext evaluateScript: 方法未找到\n"];
                 }
-
-                searchPtr = (uintptr_t)found + targetLen;
+            } else {
+                errorMsg = [errorMsg stringByAppendingString:@"JSContext 类未找到\n"];
             }
+        } else {
+            jsSuccess = YES;
+        }
 
-            address += size;
-            infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+        // 方案二：Hook WKUserScript
+        if (!self.wkHookEnabled) {
+            Class wkUserScriptClass = NSClassFromString(@"WKUserScript");
+            if (wkUserScriptClass) {
+                SEL initSEL = NSSelectorFromString(@"initWithSource:injectionTime:forMainFrameOnly:");
+                Method origMethod = class_getInstanceMethod(wkUserScriptClass, initSEL);
+                if (origMethod) {
+                    orig_WKUserScript_initWithSource = (id (*)(id, SEL, NSString *, WKUserScriptInjectionTime, BOOL))method_getImplementation(origMethod);
+                    method_setImplementation(origMethod, (IMP)hook_WKUserScript_initWithSource);
+                    self.wkHookEnabled = YES;
+                    wkSuccess = YES;
+                    NSLog(@"[Tweak] WKUserScript initWithSource: Hook 成功");
+                } else {
+                    errorMsg = [errorMsg stringByAppendingString:@"WKUserScript initWithSource: 方法未找到\n"];
+                }
+            } else {
+                errorMsg = [errorMsg stringByAppendingString:@"WKUserScript 类未找到\n"];
+            }
+        } else {
+            wkSuccess = YES;
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (replaceCount > 0) {
-                [self showMessage:@"修改成功" message:[NSString stringWithFormat:@"成功修改了 %d 处目标字符串\n（检查 %d 个区域，跳过 %d 个）", replaceCount, checkedRegions, skippedRegions]];
+            if (jsSuccess && wkSuccess) {
+                [self showMessage:@"Hook 启用成功" message:@"JSContext + WKUserScript 双方案已同时启用，脚本内容将在执行前自动替换。"];
+            } else if (jsSuccess) {
+                [self showMessage:@"部分 Hook 成功" message:[NSString stringWithFormat:@"JSContext Hook 已启用\nWKUserScript Hook 失败\n%@", errorMsg]];
+            } else if (wkSuccess) {
+                [self showMessage:@"部分 Hook 成功" message:[NSString stringWithFormat:@"WKUserScript Hook 已启用\nJSContext Hook 失败\n%@", errorMsg]];
             } else {
-                [self showMessage:@"修改失败" message:[NSString stringWithFormat:@"未找到目标字符串\n检查 %d 个区域，跳过 %d 个\n可能字符串在只读段或已变更", checkedRegions, skippedRegions]];
+                [self showMessage:@"Hook 启用失败" message:[NSString stringWithFormat:@"两个方案均失败\n%@\n请确认目标应用使用了 JavaScriptCore 或 WebKit 框架。", errorMsg]];
             }
         });
     });

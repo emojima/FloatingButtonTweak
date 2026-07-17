@@ -573,12 +573,11 @@ static id hook_AwemeWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request
         int successCount = 0;
         int failCount = 0;
 
-        // 辅助 Hook 函数
+        // 辅助 Hook 函数 - 使用 __block 修饰局部变量
         void (^hookClass)(NSString *, NSString *, IMP, IMP *) = ^(NSString *className, NSString *selName, IMP hookIMP, IMP *origIMP) {
             Class cls = NSClassFromString(className);
             if (!cls) {
                 [log appendFormat:@"❌ %@ 类未找到\n", className];
-                failCount++;
                 return;
             }
 
@@ -586,14 +585,12 @@ static id hook_AwemeWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request
             Method method = class_getInstanceMethod(cls, sel);
             if (!method) {
                 [log appendFormat:@"⚠️ %@ %@ 方法未找到\n", className, selName];
-                failCount++;
                 return;
             }
 
             *origIMP = method_getImplementation(method);
             method_setImplementation(method, hookIMP);
             [log appendFormat:@"✅ %@ %@ Hook 成功\n", className, selName];
-            successCount++;
         };
 
         // 方案一：JSContext
@@ -635,6 +632,13 @@ static id hook_AwemeWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request
         hookClass(@"TTWebView", @"loadRequest:", (IMP)hook_TTWebView_loadRequest, (IMP *)&orig_TTWebView_loadRequest);
         hookClass(@"BDWebView", @"loadRequest:", (IMP)hook_BDWebView_loadRequest, (IMP *)&orig_BDWebView_loadRequest);
         hookClass(@"AwemeWebView", @"loadRequest:", (IMP)hook_AwemeWebView_loadRequest, (IMP *)&orig_AwemeWebView_loadRequest);
+
+        // 统计成功/失败数量
+        NSArray *lines = [log componentsSeparatedByString:@"\n"];
+        for (NSString *line in lines) {
+            if ([line hasPrefix:@"✅"]) successCount++;
+            else if ([line hasPrefix:@"❌"] || [line hasPrefix:@"⚠️"]) failCount++;
+        }
 
         self.hookEnabled = YES;
 

@@ -1,0 +1,83 @@
+name: Build Theos Tweak (dylib)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install ldid dpkg
+          
+      - name: Setup Theos
+        run: |
+          export THEOS=${HOME}/theos
+          echo "THEOS=${THEOS}" >> $GITHUB_ENV
+          
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          
+          mkdir -p $THEOS/sdks
+          cd $THEOS/sdks
+          
+          curl -L -o iphoneos16.5.sdk.tar.gz \
+            "https://github.com/xybp888/iOS-SDKs/releases/download/16.5/iPhoneOS16.5.sdk.tar.gz" \
+            || curl -L -o iphoneos16.5.sdk.tar.gz \
+            "https://github.com/theos/sdks/releases/download/16.5/iPhoneOS16.5.sdk.tar.gz"
+          
+          tar -xzf iphoneos16.5.sdk.tar.gz
+          rm iphoneos16.5.sdk.tar.gz
+          
+          echo "Theos installed at: $THEOS"
+          ls -la $THEOS/sdks/
+
+      - name: Build Tweak
+        run: |
+          cd ${{ github.workspace }}
+          make clean
+          make
+          
+          echo "=== 编译产物 ==="
+          ls -la .theos/obj/debug/ || ls -la .theos/obj/
+
+      - name: Package Tweak
+        run: |
+          cd ${{ github.workspace }}
+          make package
+          
+          echo "=== 打包产物 ==="
+          ls -la packages/ || ls -la *.deb || true
+
+      - name: Extract dylib
+        run: |
+          mkdir -p ${{ github.workspace }}/artifacts
+          
+          cp .theos/obj/debug/*.dylib ${{ github.workspace }}/artifacts/ 2>/dev/null \
+            || cp .theos/obj/*.dylib ${{ github.workspace }}/artifacts/
+          
+          cp packages/*.deb ${{ github.workspace }}/artifacts/ 2>/dev/null \
+            || cp *.deb ${{ github.workspace }}/artifacts/ 2>/dev/null || true
+          
+          cp *.plist ${{ github.workspace }}/artifacts/ 2>/dev/null || true
+          
+          echo "=== 最终产物 ==="
+          ls -la ${{ github.workspace }}/artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatingButtonTweak-dylib
+          path: |
+            artifacts/*.dylib
+            artifacts/*.deb
+            artifacts/*.plist
+          if-no-files-found: warn

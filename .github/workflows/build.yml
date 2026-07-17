@@ -38,38 +38,18 @@ jobs:
           
           echo "Theos installed at: $THEOS"
 
-      # ========== Step 5: 下载 iOS SDK（使用可靠源） ==========
-      - name: Download iOS SDK
+      # ========== Step 5: 使用系统 Xcode SDK ==========
+      - name: Setup iOS SDK
         run: |
           export THEOS=${{ github.workspace }}/theos
-          
           mkdir -p $THEOS/sdks
-          cd $THEOS/sdks
           
-          # 使用 xybp888 的 SDK 源
-          curl -L -o iPhoneOS16.5.sdk.tar.gz \
-            "https://github.com/xybp888/iOS-SDKs/releases/download/16.5/iPhoneOS16.5.sdk.tar.gz" \
-            --max-time 120
+          # 找到系统 Xcode 中的 iOS SDK
+          XCODE_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Found Xcode SDK: $XCODE_SDK"
           
-          # 检查下载是否成功
-          if [ ! -f iPhoneOS16.5.sdk.tar.gz ] || [ $(stat -f%z iPhoneOS16.5.sdk.tar.gz) -lt 1000000 ]; then
-            echo "主源下载失败，尝试备用源..."
-            rm -f iPhoneOS16.5.sdk.tar.gz
-            curl -L -o iPhoneOS16.5.sdk.tar.gz \
-              "https://github.com/theos/sdks/archive/refs/tags/iPhoneOS16.5.sdk.tar.gz" \
-              --max-time 120
-          fi
-          
-          # 解压
-          tar -xzf iPhoneOS16.5.sdk.tar.gz
-          rm iPhoneOS16.5.sdk.tar.gz
-          
-          # 如果解压出来是目录，重命名
-          if [ -d "iPhoneOS16.5.sdk" ]; then
-            echo "SDK ready"
-          elif [ -d "sdks-iPhoneOS16.5.sdk" ]; then
-            mv sdks-iPhoneOS16.5.sdk iPhoneOS16.5.sdk
-          fi
+          # 创建符号链接
+          ln -s "$XCODE_SDK" $THEOS/sdks/iPhoneOS.sdk
           
           echo "SDKs:"
           ls -la $THEOS/sdks/

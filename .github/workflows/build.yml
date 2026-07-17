@@ -33,16 +33,12 @@ jobs:
           export THEOS=${{ github.workspace }}/theos
           echo "THEOS=${THEOS}" >> $GITHUB_ENV
           
-          # 删除旧目录
           rm -rf $THEOS
-          
-          # 克隆 Theos（包含子模块）
           git clone --recursive https://github.com/theos/theos.git $THEOS
           
           echo "Theos installed at: $THEOS"
-          ls -la $THEOS
 
-      # ========== Step 5: 下载 iOS SDK ==========
+      # ========== Step 5: 下载 iOS SDK（使用可靠源） ==========
       - name: Download iOS SDK
         run: |
           export THEOS=${{ github.workspace }}/theos
@@ -50,12 +46,30 @@ jobs:
           mkdir -p $THEOS/sdks
           cd $THEOS/sdks
           
-          # 下载 iOS 16.5 SDK
+          # 使用 xybp888 的 SDK 源
           curl -L -o iPhoneOS16.5.sdk.tar.gz \
-            "https://github.com/theos/sdks/releases/download/16.5/iPhoneOS16.5.sdk.tar.gz"
+            "https://github.com/xybp888/iOS-SDKs/releases/download/16.5/iPhoneOS16.5.sdk.tar.gz" \
+            --max-time 120
           
+          # 检查下载是否成功
+          if [ ! -f iPhoneOS16.5.sdk.tar.gz ] || [ $(stat -f%z iPhoneOS16.5.sdk.tar.gz) -lt 1000000 ]; then
+            echo "主源下载失败，尝试备用源..."
+            rm -f iPhoneOS16.5.sdk.tar.gz
+            curl -L -o iPhoneOS16.5.sdk.tar.gz \
+              "https://github.com/theos/sdks/archive/refs/tags/iPhoneOS16.5.sdk.tar.gz" \
+              --max-time 120
+          fi
+          
+          # 解压
           tar -xzf iPhoneOS16.5.sdk.tar.gz
           rm iPhoneOS16.5.sdk.tar.gz
+          
+          # 如果解压出来是目录，重命名
+          if [ -d "iPhoneOS16.5.sdk" ]; then
+            echo "SDK ready"
+          elif [ -d "sdks-iPhoneOS16.5.sdk" ]; then
+            mv sdks-iPhoneOS16.5.sdk iPhoneOS16.5.sdk
+          fi
           
           echo "SDKs:"
           ls -la $THEOS/sdks/

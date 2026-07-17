@@ -5,6 +5,132 @@
 #import <mach/mach.h>
 #import <mach/vm_map.h>
 
+@interface LogWindowManager : NSObject
+@property (nonatomic, strong) UIWindow *logWindow;
+@property (nonatomic, strong) UITextView *logTextView;
+@property (nonatomic, strong) UIButton *closeButton;
+@property (nonatomic, strong) NSMutableString *logBuffer;
+@property (nonatomic, assign) BOOL isVisible;
++ (instancetype)sharedInstance;
+- (void)toggleLogWindow;
+- (void)showLogWindow;
+- (void)hideLogWindow;
+- (void)appendLog:(NSString *)log;
+@end
+
+@implementation LogWindowManager
+
++ (instancetype)sharedInstance {
+    static LogWindowManager *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[self alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _logBuffer = [NSMutableString string];
+        _isVisible = NO;
+    }
+    return self;
+}
+
+- (void)toggleLogWindow {
+    if (self.isVisible) {
+        [self hideLogWindow];
+    } else {
+        [self showLogWindow];
+    }
+}
+
+- (void)showLogWindow {
+    if (self.logWindow) {
+        self.logWindow.hidden = NO;
+        self.isVisible = YES;
+        [self.logWindow makeKeyAndVisible];
+        return;
+    }
+
+    CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
+    CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+    CGFloat windowWidth = screenWidth * 0.9;
+    CGFloat windowHeight = screenHeight * 0.6;
+    CGFloat windowX = (screenWidth - windowWidth) / 2;
+    CGFloat windowY = screenHeight * 0.15;
+
+    self.logWindow = [[UIWindow alloc] initWithFrame:CGRectMake(windowX, windowY, windowWidth, windowHeight)];
+    self.logWindow.windowLevel = UIWindowLevelAlert + 100;
+    self.logWindow.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.92];
+    self.logWindow.layer.cornerRadius = 12;
+    self.logWindow.layer.masksToBounds = YES;
+
+    // 标题栏
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, windowWidth, 36)];
+    titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1.0];
+    [self.logWindow addSubview:titleBar];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, windowWidth - 80, 36)];
+    titleLabel.text = @"📋 Tweak 日志";
+    titleLabel.textColor = [UIColor whiteColor];
+    titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    [titleBar addSubview:titleLabel];
+
+    // 关闭按钮
+    self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.closeButton.frame = CGRectMake(windowWidth - 50, 4, 40, 28);
+    [self.closeButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.closeButton setTitleColor:[UIColor colorWithRed:1.0 green:0.3 blue:0.3 alpha:1.0] forState:UIControlStateNormal];
+    self.closeButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+    [self.closeButton addTarget:self action:@selector(hideLogWindow) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:self.closeButton];
+
+    // 日志文本视图
+    self.logTextView = [[UITextView alloc] initWithFrame:CGRectMake(8, 44, windowWidth - 16, windowHeight - 52)];
+    self.logTextView.backgroundColor = [UIColor clearColor];
+    self.logTextView.textColor = [UIColor colorWithRed:0.8 green:0.9 blue:1.0 alpha:1.0];
+    self.logTextView.font = [UIFont fontWithName:@"Menlo" size:11];
+    self.logTextView.editable = NO;
+    self.logTextView.selectable = YES;
+    self.logTextView.scrollEnabled = YES;
+    self.logTextView.showsVerticalScrollIndicator = YES;
+    self.logTextView.textContainerInset = UIEdgeInsetsMake(4, 4, 4, 4);
+    self.logTextView.text = self.logBuffer;
+    [self.logWindow addSubview:self.logTextView];
+
+    self.logWindow.hidden = NO;
+    self.isVisible = YES;
+    [self.logWindow makeKeyAndVisible];
+}
+
+- (void)hideLogWindow {
+    self.logWindow.hidden = YES;
+    self.isVisible = NO;
+}
+
+- (void)appendLog:(NSString *)log {
+    if (!log || log.length == 0) return;
+
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"HH:mm:ss"];
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+
+    NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, log];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.logBuffer appendString:formattedLog];
+
+        if (self.logTextView) {
+            self.logTextView.text = self.logBuffer;
+            // 不自动滚动，保持用户当前滚动位置
+        }
+    });
+}
+
+@end
+
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
@@ -147,6 +273,7 @@
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *hookStatus = self.hookEnabled ? @" (已启用)" : @"";
+    NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
 
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"修改属性词条免广告刷新次数%@", hookStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self enableAllHooks];
@@ -154,6 +281,10 @@
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self searchWASMMemory];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"日志窗口%@", logStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [[LogWindowManager sharedInstance] toggleLogWindow];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"功能三（敬请期待）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -225,6 +356,7 @@ static id hook_JSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
 
     if (![modifiedScript isEqualToString:script]) {
         NSLog(@"[Tweak] ✅ JSContext evaluateScript: 已替换目标字符串");
+        [[LogWindowManager sharedInstance] appendLog:@"✅ JSContext evaluateScript: 已替换目标字符串"];
     }
 
     return orig_JSContext_evaluateScript(self, _cmd, modifiedScript);
@@ -242,6 +374,7 @@ static id hook_WKUserScript_initWithSource(id self, SEL _cmd, NSString *source, 
 
     if (![modifiedSource isEqualToString:source]) {
         NSLog(@"[Tweak] ✅ WKUserScript initWithSource: 已替换目标字符串");
+        [[LogWindowManager sharedInstance] appendLog:@"✅ WKUserScript initWithSource: 已替换目标字符串"];
     }
 
     return orig_WKUserScript_initWithSource(self, _cmd, modifiedSource, injectionTime, forMainFrameOnly);
@@ -259,6 +392,7 @@ static id hook_WKWebView_loadHTMLString(id self, SEL _cmd, NSString *string, NSU
 
     if (![modifiedString isEqualToString:string]) {
         NSLog(@"[Tweak] ✅ WKWebView loadHTMLString: 已替换目标字符串");
+        [[LogWindowManager sharedInstance] appendLog:@"✅ WKWebView loadHTMLString: 已替换目标字符串"];
     }
 
     return orig_WKWebView_loadHTMLString(self, _cmd, modifiedString, baseURL);
@@ -276,6 +410,7 @@ static id hook_WKWebView_loadData(id self, SEL _cmd, NSData *data, NSString *MIM
             NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
             if (![modifiedContent isEqualToString:content]) {
                 NSLog(@"[Tweak] ✅ WKWebView loadData: 已替换目标字符串");
+                [[LogWindowManager sharedInstance] appendLog:@"✅ WKWebView loadData: 已替换目标字符串"];
                 data = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
             }
         }
@@ -290,7 +425,9 @@ static id hook_WKWebView_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
         return orig_WKWebView_loadRequest(self, _cmd, request);
     }
 
-    NSLog(@"[Tweak] ℹ️ WKWebView loadRequest: URL=%@", request.URL.absoluteString);
+    NSString *log = [NSString stringWithFormat:@"ℹ️ WKWebView loadRequest: URL=%@", request.URL.absoluteString];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
     return orig_WKWebView_loadRequest(self, _cmd, request);
 }
 
@@ -305,7 +442,9 @@ static id hook_NSString_stringWithContentsOfFile_encoding_error(id self, SEL _cm
         if ([path hasSuffix:@".js"] || [path hasSuffix:@".html"] || [path hasSuffix:@".htm"] || [path containsString:@"javascript"] || [path containsString:@"script"]) {
             NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
             if (![modifiedContent isEqualToString:content]) {
-                NSLog(@"[Tweak] ✅ NSString stringWithContentsOfFile: 已替换文件内容 | path=%@", path);
+                NSString *log = [NSString stringWithFormat:@"✅ NSString stringWithContentsOfFile: 已替换 | path=%@", path];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
                 return modifiedContent;
             }
         }
@@ -324,7 +463,9 @@ static id hook_NSData_dataWithContentsOfFile(id self, SEL _cmd, NSString *path) 
             if (content) {
                 NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
                 if (![modifiedContent isEqualToString:content]) {
-                    NSLog(@"[Tweak] ✅ NSData dataWithContentsOfFile: 已替换文件内容 | path=%@", path);
+                    NSString *log = [NSString stringWithFormat:@"✅ NSData dataWithContentsOfFile: 已替换 | path=%@", path];
+                    NSLog(@"[Tweak] %@", log);
+                    [[LogWindowManager sharedInstance] appendLog:log];
                     return [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
                 }
             }
@@ -362,7 +503,9 @@ static id hook_NSURLSession_dataTaskWithRequest_completion(id self, SEL _cmd, NS
                     if (content) {
                         NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
                         if (![modifiedContent isEqualToString:content]) {
-                            NSLog(@"[Tweak] ✅ NSURLSession: 已替换网络响应数据 | URL=%@", urlString);
+                            NSString *log = [NSString stringWithFormat:@"✅ NSURLSession: 已替换网络响应 | URL=%@", urlString];
+                            NSLog(@"[Tweak] %@", log);
+                            [[LogWindowManager sharedInstance] appendLog:log];
                             modifiedData = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
                         }
                     }
@@ -388,7 +531,9 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
         if (content.length > 100 && ([content containsString:@"this."] || [content containsString:@"function"])) {
             NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
             if (![modifiedContent isEqualToString:content]) {
-                NSLog(@"[Tweak] ✅ NSString initWithData: 已替换目标字符串 (长度:%lu)", (unsigned long)content.length);
+                NSString *log = [NSString stringWithFormat:@"✅ NSString initWithData: 已替换 (长度:%lu)", (unsigned long)content.length];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
                 return modifiedContent;
             }
         }
@@ -458,7 +603,9 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
                         if (strcmp(argType, "@") == 0) {
                             [self.hookedClasses addObject:[NSString stringWithFormat:@"✅ %@ %@", className, selName]];
                             hookCount++;
-                            NSLog(@"[Tweak] ✅ AutoHook: %@ %@", className, selName);
+                            NSString *log = [NSString stringWithFormat:@"✅ AutoHook: %@ %@", className, selName];
+                            NSLog(@"[Tweak] %@", log);
+                            [[LogWindowManager sharedInstance] appendLog:log];
                         }
                     }
                 }
@@ -470,14 +617,17 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
     free(classes);
 
-    NSLog(@"[Tweak] AutoHook 完成: 扫描 %d 个类, Hook %d 个方法", classCount, hookCount);
+    NSString *log = [NSString stringWithFormat:@"AutoHook 完成: 扫描 %d 个类, Hook %d 个方法", classCount, hookCount];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
 }
 
 #pragma mark - ========== 方案八：Unity WASM 内存搜索（只读，不修改）==========
 
 - (void)searchWASMMemory {
+    [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索..."];
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        // 搜索目标字符串列表
         NSArray *searchStrings = @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
 
         NSMutableDictionary *results = [NSMutableDictionary dictionary];
@@ -502,7 +652,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             if (kr != KERN_SUCCESS) break;
             totalRegions++;
 
-            // 只搜索可读区域（不修改，所以不需要可写）
             BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
 
             if (!isReadable || size < 100) {
@@ -513,7 +662,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
 
             checkedRegions++;
 
-            // 搜索每个目标字符串
             for (NSString *targetStr in searchStrings) {
                 const char *target = [targetStr UTF8String];
                 size_t targetLen = strlen(target);
@@ -532,18 +680,9 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
                     int currentCount = [results[targetStr] intValue];
                     results[targetStr] = @(currentCount + 1);
 
-                    // 读取前后 32 字节的上下文用于日志
-                    uintptr_t contextStart = (uintptr_t)found - 16;
-                    if (contextStart < address) contextStart = address;
-                    size_t contextLen = 48;
-                    if (contextStart + contextLen > endPtr) contextLen = endPtr - contextStart;
-
-                    NSString *context = [[NSString alloc] initWithBytes:(void *)contextStart 
-                                                                 length:contextLen 
-                                                               encoding:NSUTF8StringEncoding];
-                    if (!context) context = @"[binary data]";
-
-                    NSLog(@"[Tweak] 🔍 Found '%@' at %p | context: %@", targetStr, found, context);
+                    NSString *log = [NSString stringWithFormat:@"🔍 Found '%@' at %p", targetStr, found];
+                    NSLog(@"[Tweak] %@", log);
+                    [[LogWindowManager sharedInstance] appendLog:log];
 
                     searchPtr = (uintptr_t)found + targetLen;
                 }
@@ -553,9 +692,8 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         }
 
-        // 构建结果报告
         NSMutableString *report = [NSMutableString string];
-        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n\n", totalRegions, checkedRegions];
+        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n", totalRegions, checkedRegions];
 
         int totalFound = 0;
         for (NSString *str in searchStrings) {
@@ -564,7 +702,9 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             [report appendFormat:@"%@: %d 处\n", str, count];
         }
 
-        [report appendFormat:@"\n总计找到: %d 处", totalFound];
+        [report appendFormat:@"总计找到: %d 处", totalFound];
+
+        [[LogWindowManager sharedInstance] appendLog:report];
 
         dispatch_async(dispatch_get_main_queue(), ^{
             if (totalFound > 0) {
@@ -583,6 +723,8 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
         [self showMessage:@"Hook 已启用" message:@"所有 Hook 方案已在运行中，脚本内容将在执行前自动替换。"];
         return;
     }
+
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用所有 Hook..."];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableString *log = [NSMutableString string];
@@ -635,6 +777,9 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
             if ([line hasPrefix:@"✅"]) successCount++;
             else if ([line hasPrefix:@"❌"] || [line hasPrefix:@"⚠️"]) failCount++;
         }
+
+        NSString *summary = [NSString stringWithFormat:@"Hook 启用完成 | 成功: %d | 失败: %d", successCount, failCount];
+        [[LogWindowManager sharedInstance] appendLog:summary];
 
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *title = successCount > 0 ? @"Hook 启用成功" : @"Hook 启用失败";

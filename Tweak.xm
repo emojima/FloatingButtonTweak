@@ -5,22 +5,6 @@
 #import <sys/mman.h>
 #import <libkern/OSCacheControl.h>
 #include <dlfcn.h>
-#include <signal.h>
-#include <setjmp.h>
-
-static sigjmp_buf jump_buffer;
-static volatile sig_atomic_t can_jump = 0;
-
-// Signal handler for SIGBUS/SIGSEGV
-static void signal_handler(int sig) {
-    if (can_jump) {
-        can_jump = 0;
-        siglongjmp(jump_buffer, 1);
-    }
-    // Re-raise if we can't handle it
-    signal(sig, SIG_DFL);
-    raise(sig);
-}
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
@@ -183,70 +167,35 @@ static void signal_handler(int sig) {
     Dl_info info;
     if (dladdr((__bridge void *)[self class], &info)) {
         *start = (uintptr_t)info.dli_fbase;
-        // 估算大小为 64KB，足够覆盖 dylib
-        *size = 0x10000;
+        *size = 0x10000; // 64KB 足够覆盖 dylib
     }
 }
 
-// ========== 安全的内存修改（带信号保护）==========
+// ========== 使用 vm_write 安全修改内存（非越狱设备友好）==========
 - (BOOL)safeMemoryReplace:(void *)addr target:(const char *)targetStr targetLen:(size_t)targetLen newStr:(const char *)newStr newLen:(size_t)newLen {
     if (!addr || !targetStr || !newStr) return NO;
     if (targetLen == 0 || newLen == 0) return NO;
 
-    size_t pageSize = getpagesize();
+    // 验证目标地址确实包含目标字符串
+    if (memcmp(addr, targetStr, targetLen) != 0) return NO;
 
-    uintptr_t addrStart = (uintptr_t)addr;
-    uintptr_t addrEnd = addrStart + newLen;
+    // 使用 vm_write 替代 memcpy + mprotect
+    // vm_write 不需要修改页面权限，更安全
+    kern_return_t kr = vm_write(mach_task_self(), 
+                                (vm_address_t)addr, 
+                                (vm_offset_t)newStr, 
+                                (mach_msg_type_number_t)newLen);
 
-    uintptr_t pageStart = (addrStart / pageSize) * pageSize;
-    uintptr_t pageEnd = ((addrEnd + pageSize - 1) / pageSize) * pageSize;
-    size_t protectSize = pageEnd - pageStart;
-
-    // 设置信号处理
-    void (*old_sigbus)(int) = signal(SIGBUS, signal_handler);
-    void (*old_sigsegv)(int) = signal(SIGSEGV, signal_handler);
-
-    BOOL success = NO;
-
-    if (sigsetjmp(jump_buffer, 1) == 0) {
-        can_jump = 1;
-
-        // 修改权限为可读写
-        int result = mprotect((void *)pageStart, protectSize, PROT_READ | PROT_WRITE);
-        if (result != 0) {
-            kern_return_t kr = vm_protect(mach_task_self(), pageStart, protectSize, false, 
-                                          VM_PROT_READ | VM_PROT_COPY | VM_PROT_WRITE);
-            if (kr != KERN_SUCCESS) {
-                can_jump = 0;
-                signal(SIGBUS, old_sigbus);
-                signal(SIGSEGV, old_sigsegv);
-                return NO;
-            }
-        }
-
-        // 复制新字符串
-        memcpy(addr, newStr, newLen);
-
-        // 恢复只读权限
-        mprotect((void *)pageStart, protectSize, PROT_READ);
-
+    if (kr == KERN_SUCCESS) {
         // 刷新指令缓存
         sys_icache_invalidate(addr, newLen);
-
-        success = YES;
-    } else {
-        // 信号被捕获，操作失败
-        success = NO;
+        return YES;
     }
 
-    can_jump = 0;
-    signal(SIGBUS, old_sigbus);
-    signal(SIGSEGV, old_sigsegv);
-
-    return success;
+    return NO;
 }
 
-// ========== 使用 vm_region 安全搜索内存 ==========
+// ========== 使用 vm_region 安全搜索内存（非越狱设备友好）==========
 - (void)performMemoryPatch {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         const char *targetStr = ".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0,this.startChooseCount=0,this.ChooseCount=0,this.isRevive=!1,this.isClickVideo=!1,this.needShowIdList=null";
@@ -256,6 +205,7 @@ static void signal_handler(int sig) {
         size_t newLen = strlen(newStr);
         int replaceCount = 0;
         int checkedRegions = 0;
+        int skippedRegions = 0;
 
         // 获取自身 dylib 的内存范围
         uintptr_t selfStart = 0;
@@ -268,10 +218,6 @@ static void signal_handler(int sig) {
         mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         memory_object_name_t objectName = MACH_PORT_NULL;
 
-        // 设置信号处理
-        void (*old_sigbus)(int) = signal(SIGBUS, signal_handler);
-        void (*old_sigsegv)(int) = signal(SIGSEGV, signal_handler);
-
         while (1) {
             kern_return_t kr = vm_region_64(mach_task_self(), &address, &size, 
                                             VM_REGION_BASIC_INFO_64, 
@@ -283,18 +229,20 @@ static void signal_handler(int sig) {
 
             // 跳过自身 dylib 的内存区域
             if (selfStart > 0 && address >= selfStart && address < selfStart + selfSize) {
+                skippedRegions++;
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
             }
 
-            // 只搜索可读且可写的内存区域（排除 __TEXT 等只读段）
-            // 同时也允许 VM_PROT_COPY（写时复制）
+            // ===== 关键：只搜索已经可写的内存区域 =====
+            // 非越狱设备上，修改只读内存会触发代码签名杀死进程
             BOOL isWritable = (info.protection & VM_PROT_WRITE) != 0;
             BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
-            BOOL isCopyOnWrite = (info.max_protection & VM_PROT_COPY) != 0;
 
-            if (!isReadable || (!isWritable && !isCopyOnWrite)) {
+            // 跳过不可读或不可写的区域
+            if (!isReadable || !isWritable) {
+                skippedRegions++;
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
@@ -302,6 +250,15 @@ static void signal_handler(int sig) {
 
             // 跳过过小的区域
             if (size <= targetLen) {
+                skippedRegions++;
+                address += size;
+                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
+                continue;
+            }
+
+            // 跳过共享库区域（通常是只读的）
+            if (info.shared) {
+                skippedRegions++;
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
@@ -314,19 +271,7 @@ static void signal_handler(int sig) {
             while (searchPtr < endPtr) {
                 if (searchPtr + targetLen > endPtr) break;
 
-                void *found = NULL;
-
-                // 使用信号保护 memmem
-                if (sigsetjmp(jump_buffer, 1) == 0) {
-                    can_jump = 1;
-                    found = memmem((void *)searchPtr, endPtr - searchPtr, targetStr, targetLen);
-                    can_jump = 0;
-                } else {
-                    // 访问该区域导致信号，跳过
-                    can_jump = 0;
-                    break;
-                }
-
+                void *found = memmem((void *)searchPtr, endPtr - searchPtr, targetStr, targetLen);
                 if (!found) break;
 
                 // 执行替换
@@ -341,14 +286,11 @@ static void signal_handler(int sig) {
             infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         }
 
-        signal(SIGBUS, old_sigbus);
-        signal(SIGSEGV, old_sigsegv);
-
         dispatch_async(dispatch_get_main_queue(), ^{
             if (replaceCount > 0) {
-                [self showMessage:@"修改成功" message:[NSString stringWithFormat:@"成功修改了 %d 处目标字符串（检查了 %d 个内存区域）", replaceCount, checkedRegions]];
+                [self showMessage:@"修改成功" message:[NSString stringWithFormat:@"成功修改了 %d 处目标字符串\n（检查 %d 个区域，跳过 %d 个）", replaceCount, checkedRegions, skippedRegions]];
             } else {
-                [self showMessage:@"修改失败" message:[NSString stringWithFormat:@"未找到目标字符串。\n检查了 %d 个内存区域。\n可能游戏版本已更新或字符串已变更。", checkedRegions]];
+                [self showMessage:@"修改失败" message:[NSString stringWithFormat:@"未找到目标字符串\n检查 %d 个区域，跳过 %d 个\n可能字符串在只读段或已变更", checkedRegions, skippedRegions]];
             }
         });
     });

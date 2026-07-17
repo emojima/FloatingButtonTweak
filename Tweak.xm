@@ -7,7 +7,6 @@
 #import <sys/mman.h>
 #import <libkern/OSCacheControl.h>
 
-// ========== 悬浮按钮管理器 ==========
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
@@ -71,11 +70,9 @@
     [keyWindow addSubview:self.floatingButton];
     [keyWindow bringSubviewToFront:self.floatingButton];
     
-    // 启动定时器，确保按钮始终在最上层
     [self startKeepOnTopTimer];
 }
 
-// 定时检测并确保按钮在最上层
 - (void)startKeepOnTopTimer {
     [self.keepOnTopTimer invalidate];
     self.keepOnTopTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
@@ -91,7 +88,6 @@
     UIWindow *topWindow = [self topmostWindow];
     if (!topWindow) return;
     
-    // 如果窗口变了，把按钮移到新窗口
     if (self.floatingButton.superview != topWindow) {
         CGRect oldFrame = self.floatingButton.frame;
         [self.floatingButton removeFromSuperview];
@@ -100,11 +96,9 @@
         self.lastWindow = topWindow;
     }
     
-    // 确保在当前窗口的最上层
     [topWindow bringSubviewToFront:self.floatingButton];
 }
 
-// 获取最上层的 UIWindow（包括小程序/webview 创建的窗口）
 - (UIWindow *)topmostWindow {
     NSArray *windows = nil;
     
@@ -120,7 +114,6 @@
         windows = [UIApplication sharedApplication].windows;
     }
     
-    // 找到 windowLevel 最高的可见窗口
     UIWindow *topWindow = nil;
     for (UIWindow *window in windows) {
         if (!window.hidden && window.alpha > 0) {
@@ -167,7 +160,6 @@
     });
 }
 
-// ========== 内存修改功能一 ==========
 - (void)performMemoryPatch {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         const char *targetStr = ".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0,this.startChooseCount=0,this.ChooseCount=0,this.isRevive=!1,this.isClickVideo=!1,this.needShowIdList=null";
@@ -256,7 +248,7 @@
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
     UIView *button = gesture.view;
-    CGPoint translation = [gestue translationInView:button.superview];
+    CGPoint translation = [gesture translationInView:button.superview];
     button.center = CGPointMake(button.center.x + translation.x, button.center.y + translation.y);
     [gesture setTranslation:CGPointZero inView:button.superview];
 }
@@ -279,7 +271,6 @@
 
 @end
 
-// ========== 构造函数 ==========
 __attribute__((constructor))
 static void init() {
     @autoreleasepool {

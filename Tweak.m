@@ -7,6 +7,7 @@
 #import <setjmp.h>
 #import <signal.h>
 #import <dlfcn.h>
+#import "dobby.h"
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
@@ -447,7 +448,7 @@
     return NO;
 }
 
-#pragma mark - ========== 核心方案：Hook JSEvaluateScript（C 函数级别）==========
+#pragma mark - ========== 核心方案：Hook JSEvaluateScript（Dobby 版本）==========
 
 // 防递归标志
 static _Thread_local BOOL g_inJSEvaluateScript = NO;
@@ -457,27 +458,22 @@ static JSValueRef (*orig_JSEvaluateScript)(JSContextRef ctx, JSStringRef script,
 
 // Hook 函数
 static JSValueRef hook_JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSObjectRef thisObject, JSStringRef sourceURL, int startingLineNumber, JSValueRef *exception) {
-    // 防递归
     if (g_inJSEvaluateScript) {
         return orig_JSEvaluateScript(ctx, script, thisObject, sourceURL, startingLineNumber, exception);
     }
     g_inJSEvaluateScript = YES;
 
-    // 将 JSStringRef 转为 NSString
     CFStringRef cfScript = JSStringCopyCFString(kCFAllocatorDefault, script);
     NSString *scriptStr = (__bridge_transfer NSString *)cfScript;
 
     JSValueRef result = NULL;
 
     if (scriptStr && scriptStr.length >= 20) {
-        // 检查是否包含目标
         BOOL containsTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:scriptStr];
 
         if (containsTarget) {
-            // 替换
             NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:scriptStr];
 
-            // 获取 sourceURL 信息
             NSString *urlStr = @"";
             if (sourceURL) {
                 CFStringRef cfURL = JSStringCopyCFString(kCFAllocatorDefault, sourceURL);
@@ -490,7 +486,6 @@ static JSValueRef hook_JSEvaluateScript(JSContextRef ctx, JSStringRef script, JS
                 NSLog(@"[Tweak] %@", log);
                 [[LogWindowManager sharedInstance] appendLog:log];
 
-                // 创建新的 JSStringRef
                 JSStringRef newScript = JSStringCreateWithCFString((__bridge CFStringRef)modified);
                 result = orig_JSEvaluateScript(ctx, newScript, thisObject, sourceURL, startingLineNumber, exception);
                 JSStringRelease(newScript);
@@ -511,52 +506,24 @@ static JSValueRef hook_JSEvaluateScript(JSContextRef ctx, JSStringRef script, JS
     return result;
 }
 
-#pragma mark - ========== 启用 Hook ==========
+#pragma mark - ========== 启用 Hook（Dobby 版本）==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用 JSEvaluateScript Hook..."];
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用 JSEvaluateScript Hook (Dobby)..."];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableString *log = [NSMutableString string];
 
-        // 方案：通过 fishhook 或 Dobby 替换 JSEvaluateScript 符号
-        // 这里使用动态查找符号地址
-        void *handle = dlopen("/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore", RTLD_NOW);
-        if (!handle) {
-            [log appendString:@"❌ 无法打开 JavaScriptCore 框架\n"];
-        } else {
-            void *funcPtr = dlsym(RTLD_DEFAULT, "JSEvaluateScript");
-            if (funcPtr) {
-                // 使用 MSHookFunction 或 fishhook 替换
-                // 这里使用 method_exchangeImplementations 风格的直接替换
-                // 实际项目中建议使用 fishhook 或 Dobby
-                orig_JSEvaluateScript = (JSValueRef (*)(JSContextRef, JSStringRef, JSObjectRef, JSStringRef, int, JSValueRef *))funcPtr;
-
-                // 使用 fishhook 进行替换（需要链接 fishhook 库）
-                // 如果不可用，使用 DobbyHook
-                // 这里演示使用 Dobby（如果可用）
-
-                [log appendFormat:@"✅ 找到 JSEvaluateScript 地址: %p\n", funcPtr];
-                [log appendString:@"⚠️ 注意：需要使用 fishhook 或 Dobby 进行符号替换\n"];
-                [log appendString:@"请在 Makefile 中链接 fishhook 库，并取消下面代码的注释\n"];
-
-                // 如果使用了 fishhook，取消下面的注释：
-                // rebind_symbols((struct rebinding[1]){{"JSEvaluateScript", (void *)hook_JSEvaluateScript, (void **)&orig_JSEvaluateScript}}, 1);
-                // [log appendString:@"✅ JSEvaluateScript Hook 成功（fishhook）\n"];
-
+        void *funcPtr = dlsym(RTLD_DEFAULT, "JSEvaluateScript");
+        if (funcPtr) {
+            int ret = DobbyHook(funcPtr, (void *)hook_JSEvaluateScript, (void **)&orig_JSEvaluateScript);
+            if (ret == 0) {
+                [log appendFormat:@"✅ JSEvaluateScript Hook 成功 (Dobby) (地址: %p)\n", funcPtr];
             } else {
-                [log appendString:@"❌ 未找到 JSEvaluateScript 符号\n"];
+                [log appendFormat:@"❌ DobbyHook 失败，错误码: %d\n", ret];
             }
-        }
-
-        // 备选方案：Hook JSContext 的 evaluateScript: 方法
-        Class jsContextClass = NSClassFromString(@"JSContext");
-        if (jsContextClass) {
-            SEL sel = NSSelectorFromString(@"evaluateScript:");
-            Method method = class_getInstanceMethod(jsContextClass, sel);
-            if (method) {
-                [log appendString:@"✅ JSContext evaluateScript: 方法存在，可作为备选 Hook\n"];
-            }
+        } else {
+            [log appendString:@"❌ 未找到 JSEvaluateScript 符号\n"];
         }
 
         [[LogWindowManager sharedInstance] appendLog:log];

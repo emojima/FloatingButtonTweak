@@ -624,86 +624,6 @@ static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, N
     return result;
 }
 
-#pragma mark - ========== 方案七：自动扫描并 Hook 所有 JS 相关类 ==========
-
-- (void)autoHookJSClasses {
-    NSArray *keywords = @[@"JS", @"Script", @"Evaluate", @"Engine", @"Runtime", 
-                           @"Bridge", @"Context", @"WebView", @"Game", @"Mini",
-                           @"Stark", @"Tt", @"Byte", @"Douyin", @"Aweme"];
-
-    NSArray *methodKeywords = @[@"evaluateScript", @"evaluateJavaScript", @"executeScript",
-                                 @"runScript", @"callJS", @"invokeJS", @"sendScript"];
-
-    int classCount = 0;
-    int hookCount = 0;
-
-    unsigned int count = 0;
-    Class *classes = objc_copyClassList(&count);
-
-    for (unsigned int i = 0; i < count; i++) {
-        Class cls = classes[i];
-        NSString *className = NSStringFromClass(cls);
-
-        BOOL matchClass = NO;
-        for (NSString *keyword in keywords) {
-            if ([className containsString:keyword]) {
-                matchClass = YES;
-                break;
-            }
-        }
-
-        if (!matchClass || [className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] || 
-            [className hasPrefix:@"WK"] || [className hasPrefix:@"JS"] || [className hasPrefix:@"_"]) {
-            continue;
-        }
-
-        classCount++;
-
-        unsigned int methodCount = 0;
-        Method *methods = class_copyMethodList(cls, &methodCount);
-
-        for (unsigned int j = 0; j < methodCount; j++) {
-            Method method = methods[j];
-            SEL sel = method_getName(method);
-            NSString *selName = NSStringFromSelector(sel);
-
-            BOOL matchMethod = NO;
-            for (NSString *keyword in methodKeywords) {
-                if ([selName containsString:keyword]) {
-                    matchMethod = YES;
-                    break;
-                }
-            }
-
-            if (matchMethod) {
-                NSMethodSignature *sig = [cls instanceMethodSignatureForSelector:sel];
-                if (sig) {
-                    NSInteger argCount = [sig numberOfArguments];
-
-                    if (argCount >= 3) {
-                        const char *argType = [sig getArgumentTypeAtIndex:2];
-                        if (strcmp(argType, "@") == 0) {
-                            [self.hookedClasses addObject:[NSString stringWithFormat:@"✅ %@ %@", className, selName]];
-                            hookCount++;
-                            NSString *log = [NSString stringWithFormat:@"✅ AutoHook: %@ %@", className, selName];
-                            NSLog(@"[Tweak] %@", log);
-                            [[LogWindowManager sharedInstance] appendLog:log];
-                        }
-                    }
-                }
-            }
-        }
-
-        free(methods);
-    }
-
-    free(classes);
-
-    NSString *log = [NSString stringWithFormat:@"AutoHook 完成: 扫描 %d 个类, Hook %d 个方法", classCount, hookCount];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
-}
-
 #pragma mark - ========== 安全的内存搜索（防崩溃）==========
 
 // 使用 vm_read 安全读取内存，避免直接访问可能不可读的页面
@@ -945,16 +865,6 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
         hookClass(@"NSData", @"dataWithContentsOfFile:", (IMP)hook_NSData_dataWithContentsOfFile, (IMP *)&orig_NSData_dataWithContentsOfFile);
         hookClass(@"NSURLSession", @"dataTaskWithRequest:completionHandler:", (IMP)hook_NSURLSession_dataTaskWithRequest_completion, (IMP *)&orig_NSURLSession_dataTaskWithRequest_completion);
         hookClass(@"NSString", @"initWithData:encoding:", (IMP)hook_NSString_initWithData_encoding, (IMP *)&orig_NSString_initWithData_encoding);
-
-        [log appendString:@"\n--- 自动扫描 JS 相关类 ---\n"];
-        [self autoHookJSClasses];
-
-        if (self.hookedClasses.count > 0) {
-            [log appendString:[self.hookedClasses componentsJoinedByString:@"\n"]];
-            [log appendFormat:@"\n\n共自动 Hook %lu 个方法\n", (unsigned long)self.hookedClasses.count];
-        } else {
-            [log appendString:@"⚠️ 未找到额外的 JS 相关类\n"];
-        }
 
         int successCount = 0;
         int failCount = 0;

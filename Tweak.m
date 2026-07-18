@@ -935,8 +935,8 @@ static void init() {
                                                            queue:[NSOperationQueue mainQueue]
                                                       usingBlock:^(NSNotification *note) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [[FloatingButtonManager sharedInstance] showFloatingButton];
-                [[FloatingButtonManager sharedInstance] enableAllHooks];
+                #// [[FloatingButtonManager sharedInstance] showFloatingButton];
+                #// [[FloatingButtonManager sharedInstance] enableAllHooks];
             });
         }];
 

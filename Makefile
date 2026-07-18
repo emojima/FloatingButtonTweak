@@ -16,7 +16,7 @@ FloatingButtonTweak_FRAMEWORKS = UIKit Foundation CoreGraphics JavaScriptCore We
 FloatingButtonTweak_LIBRARIES = fishhook
 
 # 添加 -Wno-deprecated-declarations 和 -Wno-unused-variable 忽略警告
-FloatingButtonTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable
+FloatingButtonTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function
 
 include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk

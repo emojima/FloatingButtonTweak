@@ -12,6 +12,9 @@ FloatingButtonTweak_FILES = Tweak.m
 # 添加 JavaScriptCore 和 WebKit 框架
 FloatingButtonTweak_FRAMEWORKS = UIKit Foundation CoreGraphics JavaScriptCore WebKit
 
+# 添加 fishhook 库（用于替换 JSEvaluateScript 符号）
+FloatingButtonTweak_LIBRARIES = fishhook
+
 # 添加 -Wno-deprecated-declarations 和 -Wno-unused-variable 忽略警告
 FloatingButtonTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable
 

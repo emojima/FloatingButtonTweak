@@ -11,7 +11,6 @@
 @property (nonatomic, strong) UIButton *floatingButton;
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
 @property (nonatomic, weak) UIWindow *lastWindow;
-@property (nonatomic, strong) NSMutableArray *hookedClasses;
 @property (nonatomic, assign) int totalReplacedCount;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
@@ -93,10 +92,11 @@
         self.isVisible = YES;
         UIWindow *topWindow = [self topmostWindow];
         if (topWindow) {
-            [topWindow bringSubviewToFront:self.logContainerView];
             UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
             if (fb && fb.superview == topWindow) {
                 [topWindow insertSubview:self.logContainerView belowSubview:fb];
+            } else {
+                [topWindow bringSubviewToFront:self.logContainerView];
             }
         }
         return;
@@ -256,7 +256,6 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _hookedClasses = [NSMutableArray array];
         _totalReplacedCount = 0;
     }
     return self;
@@ -381,7 +380,7 @@
     NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@" (已替换 %d 次)", self.totalReplacedCount] : @"";
 
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"运行时解包Hook%@", replaceStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self showMessage:@"Hook 已启用" message:[NSString stringWithFormat:@"所有运行时解包 Hook 已在运行中。\n已累计替换 %d 次。", self.totalReplacedCount]];
+        [self showMessage:@"Hook 已启用" message:[NSString stringWithFormat:@"所有 Hook 已在运行中。\n已累计替换 %d 次。", self.totalReplacedCount]];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -390,10 +389,6 @@
 
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"日志窗口%@", logStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [[LogWindowManager sharedInstance] toggleLogWindow];
-    }]];
-
-    [alert addAction:[UIAlertAction actionWithTitle:@"功能三（敬请期待）" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self showMessage:@"敬请期待" message:@"功能三正在开发中..."];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"关闭悬浮窗" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
@@ -410,55 +405,30 @@
 #pragma mark - ========== 字符串替换工具 ==========
 
 - (NSString *)replaceTargetInString:(NSString *)string {
-    if (!string || string.length == 0) return string;
+    if (!string || string.length < 20) return string;
 
     NSString *modified = string;
     BOOL didReplace = NO;
 
-    // 模式1: 三元表达式形式
-    if ([modified containsString:@"freeRefreshNum=2"]) {
-        modified = [modified stringByReplacingOccurrencesOfString:@"freeRefreshNum=2" withString:@"freeRefreshNum=100"];
-        didReplace = YES;
+    // 关键词替换
+    NSArray *patterns = @[
+        @[@"freeRefreshNum=2", @"freeRefreshNum=100"],
+        @[@"freeRefreshNum=0", @"freeRefreshNum=100"],
+        @[@"refreshNum=2", @"refreshNum=100"],
+        @[@"refreshNum=0", @"refreshNum=100"],
+        @[@"this.freeRefreshNum=2:this.freeRefreshNum=0", @"this.refreshNum=100,this.freeRefreshNum=100"],
+        @[@".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0", @".curLevel),this.refreshNum=100,this.freeRefreshNum=100"],
+        @[@".curLevel) ? this.freeRefreshNum = 2 : this.freeRefreshNum = 0", @".curLevel), this.refreshNum = 100, this.freeRefreshNum = 100"]
+    ];
+
+    for (NSArray *pair in patterns) {
+        if ([modified containsString:pair[0]]) {
+            modified = [modified stringByReplacingOccurrencesOfString:pair[0] withString:pair[1]];
+            didReplace = YES;
+        }
     }
-    if ([modified containsString:@"freeRefreshNum=0"]) {
-        modified = [modified stringByReplacingOccurrencesOfString:@"freeRefreshNum=0" withString:@"freeRefreshNum=100"];
-        didReplace = YES;
-    }
-    if ([modified containsString:@"refreshNum=2"]) {
-        modified = [modified stringByReplacingOccurrencesOfString:@"refreshNum=2" withString:@"refreshNum=100"];
-        didReplace = YES;
-    }
-    if ([modified containsString:@"refreshNum=0"]) {
-        modified = [modified stringByReplacingOccurrencesOfString:@"refreshNum=0" withString:@"refreshNum=100"];
-        didReplace = YES;
-    }
 
-    // 模式2: 完整三元表达式
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0"
-        withString:@".curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
-
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @".curLevel) ? this.freeRefreshNum = 2 : this.freeRefreshNum = 0"
-        withString:@".curLevel), this.refreshNum = 100, this.freeRefreshNum = 100"];
-
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @"curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0"
-        withString:@"curLevel),this.refreshNum=100,this.freeRefreshNum=100"];
-
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @".curLevel\'?this.freeRefreshNum=2:this.freeRefreshNum=0"
-        withString:@".curLevel\'),this.refreshNum=100,this.freeRefreshNum=100"];
-
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @"this.freeRefreshNum=2:this.freeRefreshNum=0"
-        withString:@"this.refreshNum=100,this.freeRefreshNum=100"];
-
-    modified = [modified stringByReplacingOccurrencesOfString:
-        @"?this.freeRefreshNum=2:this.freeRefreshNum=0"
-        withString:@",this.refreshNum=100,this.freeRefreshNum=100"];
-
-    if (didReplace || ![modified isEqualToString:string]) {
+    if (didReplace) {
         self.totalReplacedCount++;
     }
 
@@ -466,7 +436,7 @@
 }
 
 - (NSArray *)targetKeywords {
-    return @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
+    return @[@"freeRefreshNum", @"refreshNum"];
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {
@@ -477,237 +447,167 @@
     return NO;
 }
 
-- (void)logIfContainsTarget:(NSString *)content source:(NSString *)source {
-    if (!content || content.length == 0) return;
-    for (NSString *kw in [self targetKeywords]) {
-        if ([content containsString:kw]) {
-            NSString *preview = content;
-            if (preview.length > 300) {
-                preview = [preview substringToIndex:300];
-            }
-            NSString *log = [NSString stringWithFormat:@"🎯 [%@] 包含 '%@' | 长度:%lu | 预览: %@", 
-                             source, kw, (unsigned long)content.length, preview];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-        }
-    }
-}
+#pragma mark - ========== 安全的 Hook 方案（防闪退）==========
+#pragma mark 核心原则：只 Hook 高层次的 JS 执行入口，不 Hook 底层 Foundation 方法
 
-#pragma mark - ========== 核心方案：运行时解包 Hook ==========
-#pragma mark 拦截所有 JS 执行入口
+// 线程本地存储，防止递归
+static _Thread_local BOOL g_inHook = NO;
 
-// Hook 1: JSContext evaluateScript - 抖音小游戏可能用 JSContext 执行 JS
+#define HOOK_GUARD_BEGIN \
+    if (g_inHook) { \
+        return orig_impl(self, _cmd, ##__VA_ARGS__); \
+    } \
+    g_inHook = YES;
+
+#define HOOK_GUARD_END \
+    g_inHook = NO;
+
+// Hook 1: JSContext evaluateScript: - 抖音小游戏主要 JS 执行入口
 static id (*orig_JSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
 static id hook_JSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
+    if (!script || script.length < 10) {
+        return orig_JSContext_evaluateScript(self, _cmd, script);
+    }
+    if (g_inHook) return orig_JSContext_evaluateScript(self, _cmd, script);
+    g_inHook = YES;
+
     NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
     if (![modified isEqualToString:script]) {
-        NSString *log = [NSString stringWithFormat:@"✅ JSContext evaluateScript: 已替换 (长度 %lu -> %lu)", 
-                         (unsigned long)script.length, (unsigned long)modified.length];
+        NSString *log = [NSString stringWithFormat:@"✅ JSContext evaluateScript: 已替换 (长度 %lu)", (unsigned long)modified.length];
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
+    } else if ([[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        [[LogWindowManager sharedInstance] appendLog:@"🎯 JSContext evaluateScript: 包含目标但未匹配替换规则"];
     }
-    [[FloatingButtonManager sharedInstance] logIfContainsTarget:script source:@"JSContext.evaluateScript"];
-    return orig_JSContext_evaluateScript(self, _cmd, modified);
+
+    id result = orig_JSContext_evaluateScript(self, _cmd, modified);
+    g_inHook = NO;
+    return result;
 }
 
-// Hook 2: JSContext evaluateScript:withSourceURL: 
+// Hook 2: JSContext evaluateScript:withSourceURL:
 static id (*orig_JSContext_evaluateScript_withSourceURL)(id self, SEL _cmd, NSString *script, NSURL *sourceURL);
 static id hook_JSContext_evaluateScript_withSourceURL(id self, SEL _cmd, NSString *script, NSURL *sourceURL) {
+    if (!script || script.length < 10) {
+        return orig_JSContext_evaluateScript_withSourceURL(self, _cmd, script, sourceURL);
+    }
+    if (g_inHook) return orig_JSContext_evaluateScript_withSourceURL(self, _cmd, script, sourceURL);
+    g_inHook = YES;
+
     NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
     if (![modified isEqualToString:script]) {
         NSString *log = [NSString stringWithFormat:@"✅ JSContext evaluateScript:withSourceURL: 已替换 | URL=%@", sourceURL.absoluteString];
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
     }
-    [[FloatingButtonManager sharedInstance] logIfContainsTarget:script source:[NSString stringWithFormat:@"JSContext.evaluateScript | %@", sourceURL.absoluteString]];
-    return orig_JSContext_evaluateScript_withSourceURL(self, _cmd, modified, sourceURL);
+
+    id result = orig_JSContext_evaluateScript_withSourceURL(self, _cmd, modified, sourceURL);
+    g_inHook = NO;
+    return result;
 }
 
 // Hook 3: WKWebView evaluateJavaScript:completionHandler:
 static void (*orig_WKWebView_evaluateJavaScript)(id self, SEL _cmd, NSString *javaScriptString, id completionHandler);
 static void hook_WKWebView_evaluateJavaScript(id self, SEL _cmd, NSString *javaScriptString, id completionHandler) {
+    if (!javaScriptString || javaScriptString.length < 10) {
+        orig_WKWebView_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
+        return;
+    }
+    if (g_inHook) {
+        orig_WKWebView_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+
     NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:javaScriptString];
     if (![modified isEqualToString:javaScriptString]) {
         NSString *log = @"✅ WKWebView evaluateJavaScript: 已替换";
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
     }
-    [[FloatingButtonManager sharedInstance] logIfContainsTarget:javaScriptString source:@"WKWebView.evaluateJavaScript"];
+
     orig_WKWebView_evaluateJavaScript(self, _cmd, modified, completionHandler);
+    g_inHook = NO;
 }
 
-// Hook 4: NSData 转 NSString 的所有路径
-static id (*orig_NSString_initWithData_encoding)(id self, SEL _cmd, NSData *data, NSStringEncoding encoding);
-static id hook_NSString_initWithData_encoding(id self, SEL _cmd, NSData *data, NSStringEncoding encoding) {
-    id result = orig_NSString_initWithData_encoding(self, _cmd, data, encoding);
-    if ([result isKindOfClass:[NSString class]]) {
-        NSString *content = (NSString *)result;
-        if ([[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
-            [[FloatingButtonManager sharedInstance] logIfContainsTarget:content source:@"NSString initWithData"];
-        }
+// Hook 4: WKUserScript initWithSource: - WebView 注入脚本
+static id (*orig_WKUserScript_initWithSource)(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly);
+static id hook_WKUserScript_initWithSource(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly) {
+    if (!source || source.length < 10) {
+        return orig_WKUserScript_initWithSource(self, _cmd, source, injectionTime, forMainFrameOnly);
     }
+    if (g_inHook) return orig_WKUserScript_initWithSource(self, _cmd, source, injectionTime, forMainFrameOnly);
+    g_inHook = YES;
+
+    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:source];
+    if (![modified isEqualToString:source]) {
+        NSString *log = @"✅ WKUserScript initWithSource: 已替换";
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+
+    id result = orig_WKUserScript_initWithSource(self, _cmd, modified, injectionTime, forMainFrameOnly);
+    g_inHook = NO;
     return result;
 }
 
-static id (*orig_NSString_stringWithContentsOfFile_encoding_error)(id self, SEL _cmd, NSString *path, NSStringEncoding enc, NSError **error);
-static id hook_NSString_stringWithContentsOfFile_encoding_error(id self, SEL _cmd, NSString *path, NSStringEncoding enc, NSError **error) {
-    id result = orig_NSString_stringWithContentsOfFile_encoding_error(self, _cmd, path, enc, error);
-    if ([result isKindOfClass:[NSString class]]) {
-        NSString *content = (NSString *)result;
-        if ([[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
-            [[FloatingButtonManager sharedInstance] logIfContainsTarget:content source:[NSString stringWithFormat:@"NSString stringWithContentsOfFile | %@", path]];
-        }
-    }
-    return result;
-}
-
-// Hook 5: NSData 从文件/URL 加载
-static id (*orig_NSData_initWithContentsOfFile)(id self, SEL _cmd, NSString *path);
-static id hook_NSData_initWithContentsOfFile(id self, SEL _cmd, NSString *path) {
-    id result = orig_NSData_initWithContentsOfFile(self, _cmd, path);
-    if ([result isKindOfClass:[NSData class]]) {
-        NSString *content = [[NSString alloc] initWithData:(NSData *)result encoding:NSUTF8StringEncoding];
-        if (content && [[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
-            [[FloatingButtonManager sharedInstance] logIfContainsTarget:content source:[NSString stringWithFormat:@"NSData initWithContentsOfFile | %@", path]];
-        }
-    }
-    return result;
-}
-
-static id (*orig_NSData_dataWithContentsOfFile)(id self, SEL _cmd, NSString *path);
-static id hook_NSData_dataWithContentsOfFile(id self, SEL _cmd, NSString *path) {
-    id result = orig_NSData_dataWithContentsOfFile(self, _cmd, path);
-    if ([result isKindOfClass:[NSData class]]) {
-        NSString *content = [[NSString alloc] initWithData:(NSData *)result encoding:NSUTF8StringEncoding];
-        if (content && [[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
-            [[FloatingButtonManager sharedInstance] logIfContainsTarget:content source:[NSString stringWithFormat:@"NSData dataWithContentsOfFile | %@", path]];
-        }
-    }
-    return result;
-}
-
-// Hook 6: 网络请求响应 - 抖音小游戏包可能通过网络下载
+// Hook 5: NSURLSession 网络响应 - 只处理 JS 内容类型，避免处理所有响应
 static id (*orig_NSURLSession_dataTaskWithRequest_completion)(id self, SEL _cmd, NSURLRequest *request, id completionHandler);
 static id hook_NSURLSession_dataTaskWithRequest_completion(id self, SEL _cmd, NSURLRequest *request, id completionHandler) {
-    id modifiedCompletion = completionHandler;
-    if (completionHandler) {
-        modifiedCompletion = ^(NSData *data, NSURLResponse *response, NSError *error) {
-            NSData *modifiedData = data;
-            if (data) {
-                NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                if (content && content.length > 0) {
-                    if ([[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
-                        NSString *urlString = request.URL.absoluteString ?: @"unknown";
-                        [[FloatingButtonManager sharedInstance] logIfContainsTarget:content source:[NSString stringWithFormat:@"NSURLSession | %@", urlString]];
+    if (!completionHandler) {
+        return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, completionHandler);
+    }
 
-                        NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
-                        if (![modifiedContent isEqualToString:content]) {
-                            NSString *log = [NSString stringWithFormat:@"✅ NSURLSession: 已替换网络响应 | URL=%@", urlString];
-                            NSLog(@"[Tweak] %@", log);
-                            [[LogWindowManager sharedInstance] appendLog:log];
-                            modifiedData = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
-                        }
+    NSString *urlString = request.URL.absoluteString ?: @"";
+    // 只处理可能的脚本/游戏包内容
+    BOOL isJSPackage = [urlString hasSuffix:@".js"] ||
+                       [urlString hasSuffix:@".json"] ||
+                       [urlString containsString:@"/script"] ||
+                       [urlString containsString:@".pkg"] ||
+                       [urlString containsString:@"ttpkg"] ||
+                       [urlString containsString:@"game"] ||
+                       [urlString containsString:@"wasm"] ||
+                       [urlString containsString:@".asm"];
+
+    if (!isJSPackage) {
+        return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, completionHandler);
+    }
+
+    id modifiedCompletion = ^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (data && data.length > 0) {
+            NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            if (content && content.length > 10) {
+                if ([[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
+                    NSString *log = [NSString stringWithFormat:@"🎯 NSURLSession 发现目标 | URL=%@ | 长度:%lu", urlString, (unsigned long)content.length];
+                    NSLog(@"[Tweak] %@", log);
+                    [[LogWindowManager sharedInstance] appendLog:log];
+
+                    NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
+                    if (![modifiedContent isEqualToString:content]) {
+                        NSString *log2 = [NSString stringWithFormat:@"✅ NSURLSession: 已替换网络响应 | URL=%@", urlString];
+                        NSLog(@"[Tweak] %@", log2);
+                        [[LogWindowManager sharedInstance] appendLog:log2];
+                        data = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
                     }
                 }
             }
-            void (^origBlock)(NSData *, NSURLResponse *, NSError *) = completionHandler;
-            origBlock(modifiedData, response, error);
-        };
-    }
+        }
+        void (^origBlock)(NSData *, NSURLResponse *, NSError *) = completionHandler;
+        origBlock(data, response, error);
+    };
+
     return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, modifiedCompletion);
 }
 
-// Hook 7: 拦截所有包含 "eval" 的方法 - 抖音小游戏框架常用 eval 执行动态代码
-static id (*orig_NSObject_performSelector)(id self, SEL _cmd, SEL aSelector);
-
-// Hook 8: 拦截 performSelector:withObject: 可能传递 JS 字符串
-static id (*orig_NSObject_performSelector_withObject)(id self, SEL _cmd, SEL aSelector, id object);
-static id hook_NSObject_performSelector_withObject(id self, SEL _cmd, SEL aSelector, id object) {
-    if ([object isKindOfClass:[NSString class]]) {
-        NSString *str = (NSString *)object;
-        if ([[FloatingButtonManager sharedInstance] stringContainsTarget:str]) {
-            NSString *selName = NSStringFromSelector(aSelector);
-            [[FloatingButtonManager sharedInstance] logIfContainsTarget:str source:[NSString stringWithFormat:@"performSelector:%@", selName]];
-        }
-    }
-    return orig_NSObject_performSelector_withObject(self, _cmd, aSelector, object);
-}
-
-#pragma mark - ========== 自动扫描 JS 引擎类 ==========
-
-- (void)autoHookJSEngineClasses {
-    NSArray *classKeywords = @[@"JS", @"Script", @"Engine", @"Runtime", @"Context", 
-                                @"Bridge", @"Executor", @"Evaluator", @"VM", @"Virtual"];
-    NSArray *methodKeywords = @[@"evaluate", @"execute", @"run", @"call", @"invoke", 
-                                 @"perform", @"eval", @"exec"];
-
-    int classCount = 0;
-    int hookCount = 0;
-
-    unsigned int count = 0;
-    Class *classes = objc_copyClassList(&count);
-
-    for (unsigned int i = 0; i < count; i++) {
-        Class cls = classes[i];
-        NSString *className = NSStringFromClass(cls);
-
-        BOOL matchClass = NO;
-        for (NSString *kw in classKeywords) {
-            if ([className containsString:kw]) {
-                matchClass = YES;
-                break;
-            }
-        }
-
-        if (!matchClass) continue;
-        if ([className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] || 
-            [className hasPrefix:@"WK"] || [className hasPrefix:@"_"]) continue;
-
-        classCount++;
-
-        unsigned int methodCount = 0;
-        Method *methods = class_copyMethodList(cls, &methodCount);
-
-        for (unsigned int j = 0; j < methodCount; j++) {
-            Method method = methods[j];
-            SEL sel = method_getName(method);
-            NSString *selName = NSStringFromSelector(sel);
-
-            BOOL matchMethod = NO;
-            for (NSString *kw in methodKeywords) {
-                if ([selName containsString:kw]) {
-                    matchMethod = YES;
-                    break;
-                }
-            }
-
-            if (matchMethod) {
-                NSString *log = [NSString stringWithFormat:@"🔍 发现 JS 引擎类: %@ %@", className, selName];
-                NSLog(@"[Tweak] %@", log);
-                [[LogWindowManager sharedInstance] appendLog:log];
-                hookCount++;
-            }
-        }
-
-        free(methods);
-    }
-
-    free(classes);
-
-    NSString *log = [NSString stringWithFormat:@"扫描完成: 发现 %d 个 JS 引擎类, %d 个相关方法", classCount, hookCount];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
-}
-
-#pragma mark - ========== 启用所有 Hook ==========
+#pragma mark - ========== 启用 Hook ==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用运行时解包 Hook..."];
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用安全的运行时 Hook..."];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableString *log = [NSMutableString string];
 
-        void (^hookClass)(NSString *, NSString *, IMP, IMP *) = ^(NSString *className, NSString *selName, IMP hookIMP, IMP *origIMP) {
+        void (^hookMethod)(NSString *, NSString *, IMP, IMP *) = ^(NSString *className, NSString *selName, IMP hookIMP, IMP *origIMP) {
             Class cls = NSClassFromString(className);
             if (!cls) {
                 [log appendFormat:@"❌ %@ 类未找到\n", className];
@@ -716,10 +616,8 @@ static id hook_NSObject_performSelector_withObject(id self, SEL _cmd, SEL aSelec
 
             SEL sel = NSSelectorFromString(selName);
             Method method = class_getInstanceMethod(cls, sel);
-            BOOL isClassMethod = NO;
             if (!method) {
                 method = class_getClassMethod(cls, sel);
-                isClassMethod = YES;
             }
             if (!method) {
                 [log appendFormat:@"⚠️ %@ %@ 方法未找到\n", className, selName];
@@ -728,26 +626,15 @@ static id hook_NSObject_performSelector_withObject(id self, SEL _cmd, SEL aSelec
 
             *origIMP = method_getImplementation(method);
             method_setImplementation(method, hookIMP);
-            [log appendFormat:@"✅ %@ %@ %@Hook 成功\n", className, selName, isClassMethod ? @"(类方法) " : @""];
+            [log appendFormat:@"✅ %@ %@ Hook 成功\n", className, selName];
         };
 
-        // 核心：JS 执行入口
-        hookClass(@"JSContext", @"evaluateScript:", (IMP)hook_JSContext_evaluateScript, (IMP *)&orig_JSContext_evaluateScript);
-        hookClass(@"JSContext", @"evaluateScript:withSourceURL:", (IMP)hook_JSContext_evaluateScript_withSourceURL, (IMP *)&orig_JSContext_evaluateScript_withSourceURL);
-        hookClass(@"WKWebView", @"evaluateJavaScript:completionHandler:", (IMP)hook_WKWebView_evaluateJavaScript, (IMP *)&orig_WKWebView_evaluateJavaScript);
-
-        // 数据流拦截
-        hookClass(@"NSString", @"initWithData:encoding:", (IMP)hook_NSString_initWithData_encoding, (IMP *)&orig_NSString_initWithData_encoding);
-        hookClass(@"NSString", @"stringWithContentsOfFile:encoding:error:", (IMP)hook_NSString_stringWithContentsOfFile_encoding_error, (IMP *)&orig_NSString_stringWithContentsOfFile_encoding_error);
-        hookClass(@"NSData", @"initWithContentsOfFile:", (IMP)hook_NSData_initWithContentsOfFile, (IMP *)&orig_NSData_initWithContentsOfFile);
-        hookClass(@"NSData", @"dataWithContentsOfFile:", (IMP)hook_NSData_dataWithContentsOfFile, (IMP *)&orig_NSData_dataWithContentsOfFile);
-        hookClass(@"NSURLSession", @"dataTaskWithRequest:completionHandler:", (IMP)hook_NSURLSession_dataTaskWithRequest_completion, (IMP *)&orig_NSURLSession_dataTaskWithRequest_completion);
-
-        // 通用拦截
-        hookClass(@"NSObject", @"performSelector:withObject:", (IMP)hook_NSObject_performSelector_withObject, (IMP *)&orig_NSObject_performSelector_withObject);
-
-        [log appendString:@"\n--- 自动扫描 JS 引擎类 ---\n"];
-        [self autoHookJSEngineClasses];
+        // 只 Hook 4 个最安全的 JS 执行入口 + 1 个网络响应
+        hookMethod(@"JSContext", @"evaluateScript:", (IMP)hook_JSContext_evaluateScript, (IMP *)&orig_JSContext_evaluateScript);
+        hookMethod(@"JSContext", @"evaluateScript:withSourceURL:", (IMP)hook_JSContext_evaluateScript_withSourceURL, (IMP *)&orig_JSContext_evaluateScript_withSourceURL);
+        hookMethod(@"WKWebView", @"evaluateJavaScript:completionHandler:", (IMP)hook_WKWebView_evaluateJavaScript, (IMP *)&orig_WKWebView_evaluateJavaScript);
+        hookMethod(@"WKUserScript", @"initWithSource:injectionTime:forMainFrameOnly:", (IMP)hook_WKUserScript_initWithSource, (IMP *)&orig_WKUserScript_initWithSource);
+        hookMethod(@"NSURLSession", @"dataTaskWithRequest:completionHandler:", (IMP)hook_NSURLSession_dataTaskWithRequest_completion, (IMP *)&orig_NSURLSession_dataTaskWithRequest_completion);
 
         int successCount = 0;
         int failCount = 0;
@@ -808,7 +695,7 @@ static id hook_NSObject_performSelector_withObject(id self, SEL _cmd, SEL aSelec
     return topVC;
 }
 
-#pragma mark - ========== 安全的内存搜索（防崩溃）==========
+#pragma mark - ========== 内存搜索 ==========
 
 static kern_return_t safe_vm_read(vm_address_t address, vm_size_t size, vm_offset_t *outData, mach_msg_type_number_t *outSize) {
     vm_offset_t data = 0;
@@ -827,7 +714,7 @@ static void safe_vm_free(vm_offset_t data, mach_msg_type_number_t size) {
     }
 }
 
-static int searchInCopiedMemory(const void *data, size_t dataSize, const char *target, size_t targetLen, 
+static int searchInCopiedMemory(const void *data, size_t dataSize, const char *target, size_t targetLen,
                                   NSMutableArray *foundAddresses, vm_address_t baseAddr, int maxMatches) {
     int count = 0;
     const uint8_t *ptr = (const uint8_t *)data;
@@ -848,10 +735,8 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
     return count;
 }
 
-#pragma mark - ========== Unity WASM 内存搜索 ==========
-
 - (void)searchWASMMemory {
-    [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索（安全模式）..."];
+    [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索..."];
     [[LogWindowManager sharedInstance] showLogWindow];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
@@ -884,14 +769,12 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
         while (1) {
             NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
             if (currentTime - startTime > maxDuration) {
-                NSString *log = @"⏱️ 搜索超时（10秒），提前结束";
-                NSLog(@"[Tweak] %@", log);
-                [[LogWindowManager sharedInstance] appendLog:log];
+                [[LogWindowManager sharedInstance] appendLog:@"⏱️ 搜索超时（10秒），提前结束"];
                 break;
             }
 
-            kern_return_t kr = vm_region_64(mach_task_self(), &address, &size, 
-                                            VM_REGION_BASIC_INFO_64, 
+            kern_return_t kr = vm_region_64(mach_task_self(), &address, &size,
+                                            VM_REGION_BASIC_INFO_64,
                                             (vm_region_info_t)&info, &infoCount, &objectName);
 
             if (kr != KERN_SUCCESS) break;
@@ -945,7 +828,7 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
                 if (currentCount >= MAX_MATCHES_PER_STRING) continue;
 
                 int remaining = MAX_MATCHES_PER_STRING - currentCount;
-                int found = searchInCopiedMemory((const void *)copiedData, (size_t)copiedSize, target, targetLen, 
+                int found = searchInCopiedMemory((const void *)copiedData, (size_t)copiedSize, target, targetLen,
                                                    foundAddrs, address, remaining);
 
                 if (found > 0) {
@@ -981,7 +864,7 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
         }
 
         NSMutableString *report = [NSMutableString string];
-        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n读取失败: %d\n", 
+        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n读取失败: %d\n",
          totalRegions, checkedRegions, skippedRegions, readFailedRegions];
 
         int totalFound = 0;

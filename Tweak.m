@@ -29,12 +29,14 @@
 @property (nonatomic, strong) NSMutableString *logBuffer;
 @property (nonatomic, assign) BOOL isVisible;
 @property (nonatomic, assign) CGPoint lastTranslation;
+@property (nonatomic, assign) BOOL logEnabled;
 + (instancetype)sharedInstance;
 - (void)toggleLogWindow;
 - (void)showLogWindow;
 - (void)hideLogWindow;
 - (void)appendLog:(NSString *)log;
 - (void)appendLogsBatch:(NSArray *)logs;
+- (void)setLogEnabled:(BOOL)enabled;
 @end
 
 @implementation LogWindowManager
@@ -54,6 +56,7 @@
         _logBuffer = [NSMutableString string];
         _isVisible = NO;
         _lastTranslation = CGPointZero;
+        _logEnabled = NO;
     }
     return self;
 }
@@ -134,7 +137,6 @@
     titleLabel.font = [UIFont boldSystemFontOfSize:13];
     [self.titleBar addSubview:titleLabel];
 
-    // 复制按钮
     self.logCopyButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.logCopyButton.frame = CGRectMake(windowWidth - 140, 4, 40, 28);
     [self.logCopyButton setTitle:@"📋" forState:UIControlStateNormal];
@@ -142,7 +144,6 @@
     [self.logCopyButton addTarget:self action:@selector(copyLogContent) forControlEvents:UIControlEventTouchUpInside];
     [self.titleBar addSubview:self.logCopyButton];
 
-    // 清空按钮
     self.logClearButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.logClearButton.frame = CGRectMake(windowWidth - 95, 4, 40, 28);
     [self.logClearButton setTitle:@"🗑️" forState:UIControlStateNormal];
@@ -150,7 +151,6 @@
     [self.logClearButton addTarget:self action:@selector(clearLogContent) forControlEvents:UIControlEventTouchUpInside];
     [self.titleBar addSubview:self.logClearButton];
 
-    // 关闭按钮
     self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.closeButton.frame = CGRectMake(windowWidth - 50, 4, 40, 28);
     [self.closeButton setTitle:@"✕" forState:UIControlStateNormal];
@@ -191,13 +191,22 @@
     if (self.logBuffer && self.logBuffer.length > 0) {
         UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
         pasteboard.string = self.logBuffer;
-        NSString *log = @"📋 日志内容已复制到剪贴板";
-        NSLog(@"[Tweak] %@", log);
-        [[LogWindowManager sharedInstance] appendLog:log];
+        if (self.logEnabled) {
+            NSString *log = @"📋 日志内容已复制到剪贴板";
+            NSLog(@"[Tweak] %@", log);
+            [self.logBuffer appendString:[NSString stringWithFormat:@"[%@] %@\n", [[NSDate date] description], log]];
+            if (self.logTextView) {
+                self.logTextView.text = self.logBuffer;
+                NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
+                [self.logTextView scrollRangeToVisible:bottom];
+            }
+        }
     } else {
-        NSString *log = @"⚠️ 日志内容为空，无法复制";
-        NSLog(@"[Tweak] %@", log);
-        [[LogWindowManager sharedInstance] appendLog:log];
+        if (self.logEnabled) {
+            NSString *log = @"⚠️ 日志内容为空，无法复制";
+            NSLog(@"[Tweak] %@", log);
+            [self appendLog:log];
+        }
     }
 }
 
@@ -206,9 +215,21 @@
     if (self.logTextView) {
         self.logTextView.text = @"";
     }
-    NSString *log = @"🗑️ 日志内容已清空";
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    if (self.logEnabled) {
+        NSString *log = @"🗑️ 日志内容已清空";
+        NSLog(@"[Tweak] %@", log);
+        [self appendLog:log];
+    }
+}
+
+- (void)setLogEnabled:(BOOL)enabled {
+    _logEnabled = enabled;
+    if (!enabled) {
+        [self.logBuffer setString:@""];
+        if (self.logTextView) {
+            self.logTextView.text = @"";
+        }
+    }
 }
 
 - (void)handleTitleBarPan:(UIPanGestureRecognizer *)gesture {
@@ -243,6 +264,7 @@
 }
 
 - (void)appendLog:(NSString *)log {
+    if (!self.logEnabled) return;
     if (!log || log.length == 0) return;
 
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
@@ -263,6 +285,7 @@
 }
 
 - (void)appendLogsBatch:(NSArray *)logs {
+    if (!self.logEnabled) return;
     if (!logs || logs.count == 0) return;
 
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
@@ -413,7 +436,6 @@
 }
 
 - (void)buttonTapped:(UIButton *)sender {
-    // 如果功能菜单已经显示，则关闭它
     if (self.currentMenuAlert) {
         [self.currentMenuAlert dismissViewControllerAnimated:YES completion:^{
             self.currentMenuAlert = nil;
@@ -432,6 +454,23 @@
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
+    BOOL logEnabled = [[LogWindowManager sharedInstance] logEnabled];
+    NSString *logSwitchTitle = logEnabled ? @"🔴 关闭日志输出" : @"🟢 开启日志输出";
+    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@" (已替换 %d 次)", self.totalReplacedCount] : @"";
+
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"运行时字符串替换%@", replaceStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        self.currentMenuAlert = nil;
+        NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
+        [self showMessage:@"替换状态" message:msg];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:logSwitchTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        self.currentMenuAlert = nil;
+        BOOL newState = ![[LogWindowManager sharedInstance] logEnabled];
+        [[LogWindowManager sharedInstance] setLogEnabled:newState];
+        NSString *msg = newState ? @"日志输出已开启" : @"日志输出已关闭，日志已清空";
+        [self showMessage:@"日志开关" message:msg];
+    }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
@@ -459,34 +498,38 @@
     });
 }
 
-#pragma mark - ========== 目标字符串检测工具 ==========
+#pragma mark - ========== 字符串替换工具 ==========
 
-- (NSArray *)targetKeywords {
-    return @[
-        @"freeRefreshNum",
-        @"refreshNum",
-        @"startChooseCount",
-        @"ChooseCount",
-        @"isRevive",
-        @"isClickVideo"
-    ];
+- (NSString *)replaceTargetInString:(NSString *)string {
+    if (!string || string.length < 20) return string;
+
+    NSString *target = @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
+    NSString *replacement = @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
+
+    if ([string containsString:target]) {
+        NSString *modified = [string stringByReplacingOccurrencesOfString:target withString:replacement];
+        if (![modified isEqualToString:string]) {
+            self.totalReplacedCount++;
+            NSString *log = [NSString stringWithFormat:@"✅ 字符串替换成功 (第 %d 次)", self.totalReplacedCount];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            return modified;
+        }
+    }
+
+    return string;
+}
+
+- (NSString *)targetKeyword {
+    return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {
-    if (!string || string.length < 5) return NO;
-    for (NSString *kw in [self targetKeywords]) {
-        if ([string containsString:kw]) return YES;
-    }
-    return NO;
+    if (!string || string.length < 10) return NO;
+    return [string containsString:[self targetKeyword]];
 }
 
 #pragma mark - ========== 日志输出工具 ==========
-
-- (NSString *)truncateString:(NSString *)string maxLength:(NSInteger)maxLength {
-    if (!string || string.length == 0) return @"(nil)";
-    if (string.length <= maxLength) return string;
-    return [NSString stringWithFormat:@"%@...(%lu)", [string substringToIndex:maxLength], (unsigned long)(string.length - maxLength)];
-}
 
 - (NSString *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
     if (!data || data.length == 0) return @"(nil)";
@@ -498,7 +541,7 @@
 - (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength {
     if (!obj) return @"(nil)";
     if ([obj isKindOfClass:[NSString class]]) {
-        return [self truncateString:(NSString *)obj maxLength:maxLength];
+        return (NSString *)obj;
     }
     if ([obj isKindOfClass:[NSData class]]) {
         return [self truncateData:(NSData *)obj maxLength:maxLength];
@@ -599,7 +642,7 @@ static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUser
     if (userScript) {
         NSString *src = [userScript source];
         if (src) {
-            source = [[FloatingButtonManager sharedInstance] truncateString:src maxLength:120];
+            source = src;
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:src];
         }
     }
@@ -658,7 +701,7 @@ static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, 
     NSString *strPreview = @"(nil)";
     BOOL hasTarget = NO;
     if (result) {
-        strPreview = [[FloatingButtonManager sharedInstance] truncateString:result maxLength:120];
+        strPreview = result;
         hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:result];
     }
 
@@ -685,79 +728,22 @@ static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *j
     }
     g_inHook = YES;
 
-    NSString *preview = @"(nil)";
-    BOOL hasTarget = NO;
-    if (javaScriptString) {
-        preview = [[FloatingButtonManager sharedInstance] truncateString:javaScriptString maxLength:120];
-        hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
-    }
+    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:javaScriptString];
+    BOOL didReplace = ![modified isEqualToString:javaScriptString];
+    BOOL hasTarget = javaScriptString && [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
 
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ | script=%@",
+    NSString *preview = javaScriptString ?: @"(nil)";
+
+    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
                      hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
                      preview];
     NSLog(@"[Tweak] %@", log);
     [[LogWindowManager sharedInstance] appendLog:log];
 
-    orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
+    orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, modified, completionHandler);
     g_inHook = NO;
-}
-
-// -(id)loadRequest:(NSURLRequest *)request;
-
-static id (*orig_BDPWKGamePage_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
-static id hook_BDPWKGamePage_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
-    if (g_inHook) {
-        return orig_BDPWKGamePage_loadRequest(self, _cmd, request);
-    }
-    g_inHook = YES;
-
-    NSString *urlStr = @"(nil)";
-    if (request && request.URL) {
-        urlStr = [request.URL absoluteString];
-    }
-
-    id result = orig_BDPWKGamePage_loadRequest(self, _cmd, request);
-
-    NSString *log = [NSString stringWithFormat:@"📋 [BDPWKGamePage loadRequest] URL=%@ -> return=%@",
-                     urlStr, result ? NSStringFromClass([result class]) : @"(nil)"];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
-
-    g_inHook = NO;
-    return result;
-}
-
-// -(id)loadHTMLString:(NSString *)string baseURL:(NSURL *)baseURL;
-
-static id (*orig_BDPWKGamePage_loadHTMLString)(id self, SEL _cmd, NSString *string, NSURL *baseURL);
-static id hook_BDPWKGamePage_loadHTMLString(id self, SEL _cmd, NSString *string, NSURL *baseURL) {
-    if (g_inHook) {
-        return orig_BDPWKGamePage_loadHTMLString(self, _cmd, string, baseURL);
-    }
-    g_inHook = YES;
-
-    NSString *strPreview = @"(nil)";
-    BOOL hasTarget = NO;
-    if (string) {
-        strPreview = [[FloatingButtonManager sharedInstance] truncateString:string maxLength:120];
-        hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:string];
-    }
-    NSString *baseStr = baseURL ? [baseURL absoluteString] : @"(nil)";
-
-    id result = orig_BDPWKGamePage_loadHTMLString(self, _cmd, string, baseURL);
-
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage loadHTMLString] baseURL=%@ %@ | string=%@ -> return=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     baseStr,
-                     hasTarget ? @"发现目标" : @"",
-                     strPreview,
-                     result ? NSStringFromClass([result class]) : @"(nil)"];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
-
-    g_inHook = NO;
-    return result;
 }
 
 // ========== 5. BDPWKGameBusinessEngine ==========
@@ -773,10 +759,16 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
 
     NSString *scriptPreview = @"(nil)";
     BOOL hasTarget = NO;
+    BOOL didReplace = NO;
+    id modifiedScript = script;
+
     if (script) {
         if ([script isKindOfClass:[NSString class]]) {
             NSString *str = (NSString *)script;
-            scriptPreview = [[FloatingButtonManager sharedInstance] truncateString:str maxLength:120];
+            NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:str];
+            modifiedScript = modified;
+            didReplace = ![modified isEqualToString:str];
+            scriptPreview = str;
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
         } else if ([script isKindOfClass:[NSData class]]) {
             scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)script maxLength:80];
@@ -785,16 +777,17 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         }
     }
 
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ | script=%@",
+    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (long)pageID,
                      (unsigned long)dest,
                      hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
                      scriptPreview];
     NSLog(@"[Tweak] %@", log);
     [[LogWindowManager sharedInstance] appendLog:log];
 
-    orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, script, pageID, dest, completion);
+    orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, modifiedScript, pageID, dest, completion);
     g_inHook = NO;
 }
 
@@ -904,46 +897,22 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             }
         }
 
-        // 5. BDPWKGamePage
+        // 5. BDPWKGamePage - evaluateJavaScript:completionHandler:
         {
             Class cls = NSClassFromString(@"BDPWKGamePage");
             if (!cls) {
                 [batchLogs addObject:@"❌ BDPWKGamePage 类未找到"];
-                failCount += 3;
+                failCount++;
             } else {
-                SEL sel1 = NSSelectorFromString(@"evaluateJavaScript:completionHandler:");
-                Method method1 = class_getInstanceMethod(cls, sel1);
-                if (!method1) {
+                SEL sel = NSSelectorFromString(@"evaluateJavaScript:completionHandler:");
+                Method method = class_getInstanceMethod(cls, sel);
+                if (!method) {
                     [batchLogs addObject:@"⚠️ BDPWKGamePage evaluateJavaScript:completionHandler: 方法未找到"];
                     failCount++;
                 } else {
-                    orig_BDPWKGamePage_evaluateJavaScript = (void (*)(id, SEL, NSString *, id))method_getImplementation(method1);
-                    method_setImplementation(method1, (IMP)hook_BDPWKGamePage_evaluateJavaScript);
+                    orig_BDPWKGamePage_evaluateJavaScript = (void (*)(id, SEL, NSString *, id))method_getImplementation(method);
+                    method_setImplementation(method, (IMP)hook_BDPWKGamePage_evaluateJavaScript);
                     [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功"];
-                    successCount++;
-                }
-
-                SEL sel2 = NSSelectorFromString(@"loadRequest:");
-                Method method2 = class_getInstanceMethod(cls, sel2);
-                if (!method2) {
-                    [batchLogs addObject:@"⚠️ BDPWKGamePage loadRequest: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPWKGamePage_loadRequest = (id (*)(id, SEL, NSURLRequest *))method_getImplementation(method2);
-                    method_setImplementation(method2, (IMP)hook_BDPWKGamePage_loadRequest);
-                    [batchLogs addObject:@"✅ BDPWKGamePage loadRequest: Hook 成功"];
-                    successCount++;
-                }
-
-                SEL sel3 = NSSelectorFromString(@"loadHTMLString:baseURL:");
-                Method method3 = class_getInstanceMethod(cls, sel3);
-                if (!method3) {
-                    [batchLogs addObject:@"⚠️ BDPWKGamePage loadHTMLString:baseURL: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPWKGamePage_loadHTMLString = (id (*)(id, SEL, NSString *, NSURL *))method_getImplementation(method3);
-                    method_setImplementation(method3, (IMP)hook_BDPWKGamePage_loadHTMLString);
-                    [batchLogs addObject:@"✅ BDPWKGamePage loadHTMLString:baseURL: Hook 成功"];
                     successCount++;
                 }
             }

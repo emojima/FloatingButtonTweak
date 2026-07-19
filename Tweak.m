@@ -12,6 +12,7 @@
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
 @property (nonatomic, weak) UIWindow *lastWindow;
 @property (nonatomic, assign) int totalReplacedCount;
+@property (nonatomic, assign) int totalHookedMethods;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -257,6 +258,7 @@
     self = [super init];
     if (self) {
         _totalReplacedCount = 0;
+        _totalHookedMethods = 0;
     }
     return self;
 }
@@ -377,11 +379,6 @@
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
-    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@" (已替换 %d 次)", self.totalReplacedCount] : @"";
-
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"运行时解包Hook%@", replaceStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        [self showMessage:@"Hook 已启用" message:[NSString stringWithFormat:@"所有 Hook 已在运行中。\n已累计替换 %d 次。", self.totalReplacedCount]];
-    }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         [self searchWASMMemory];
@@ -402,55 +399,29 @@
     });
 }
 
-#pragma mark - ========== 字符串替换工具 ==========
-
-- (NSString *)replaceTargetInString:(NSString *)string {
-    if (!string || string.length < 20) return string;
-
-    NSString *modified = string;
-    BOOL didReplace = NO;
-
-    // 关键词替换
-    NSArray *patterns = @[
-        @[@"freeRefreshNum=2", @"freeRefreshNum=100"],
-        @[@"freeRefreshNum=0", @"freeRefreshNum=100"],
-        @[@"refreshNum=2", @"refreshNum=100"],
-        @[@"refreshNum=0", @"refreshNum=100"],
-        @[@"this.freeRefreshNum=2:this.freeRefreshNum=0", @"this.refreshNum=100,this.freeRefreshNum=100"],
-        @[@".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0", @".curLevel),this.refreshNum=100,this.freeRefreshNum=100"],
-        @[@".curLevel) ? this.freeRefreshNum = 2 : this.freeRefreshNum = 0", @".curLevel), this.refreshNum = 100, this.freeRefreshNum = 100"]
-    ];
-
-    for (NSArray *pair in patterns) {
-        if ([modified containsString:pair[0]]) {
-            modified = [modified stringByReplacingOccurrencesOfString:pair[0] withString:pair[1]];
-            didReplace = YES;
-        }
-    }
-
-    if (didReplace) {
-        self.totalReplacedCount++;
-    }
-
-    return modified;
-}
+#pragma mark - ========== 目标字符串检测工具 ==========
 
 - (NSArray *)targetKeywords {
-    return @[@"freeRefreshNum", @"refreshNum"];
+    return @[
+        @"freeRefreshNum",
+        @"refreshNum",
+        @"startChooseCount",
+        @"ChooseCount",
+        @"isRevive",
+        @"isClickVideo"
+    ];
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {
-    if (!string || string.length < 10) return NO;
+    if (!string || string.length < 5) return NO;
     for (NSString *kw in [self targetKeywords]) {
         if ([string containsString:kw]) return YES;
     }
     return NO;
 }
 
-#pragma mark - ========== 安全的 Hook 方案（防闪退）==========
-#pragma mark 核心原则：只 Hook 高层次的 JS 执行入口，不 Hook 底层 Foundation 方法
+#pragma mark - ========== 递归保护 ==========
 
-// 线程本地存储，防止递归
 static _Thread_local BOOL g_inHook = NO;
 
 #define HOOK_GUARD_BEGIN \
@@ -462,196 +433,505 @@ static _Thread_local BOOL g_inHook = NO;
 #define HOOK_GUARD_END \
     g_inHook = NO;
 
-// Hook 1: JSContext evaluateScript: - 抖音小游戏主要 JS 执行入口
-static id (*orig_JSContext_evaluateScript)(id self, SEL _cmd, NSString *script);
-static id hook_JSContext_evaluateScript(id self, SEL _cmd, NSString *script) {
-    if (!script || script.length < 10) {
-        return orig_JSContext_evaluateScript(self, _cmd, script);
-    }
-    if (g_inHook) return orig_JSContext_evaluateScript(self, _cmd, script);
-    g_inHook = YES;
+#pragma mark - ========== 通用 Hook 安装工具 ==========
 
-    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
-    if (![modified isEqualToString:script]) {
-        NSString *log = [NSString stringWithFormat:@"✅ JSContext evaluateScript: 已替换 (长度 %lu)", (unsigned long)modified.length];
-        NSLog(@"[Tweak] %@", log);
-        [[LogWindowManager sharedInstance] appendLog:log];
-    } else if ([[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
-        [[LogWindowManager sharedInstance] appendLog:@"🎯 JSContext evaluateScript: 包含目标但未匹配替换规则"];
+- (BOOL)hookInstanceMethod:(NSString *)className selector:(NSString *)selName withBlock:(id)hookBlock {
+    Class cls = NSClassFromString(className);
+    if (!cls) {
+        return NO;
     }
-
-    id result = orig_JSContext_evaluateScript(self, _cmd, modified);
-    g_inHook = NO;
-    return result;
+    
+    SEL sel = NSSelectorFromString(selName);
+    Method method = class_getInstanceMethod(cls, sel);
+    if (!method) {
+        return NO;
+    }
+    
+    IMP origIMP = method_getImplementation(method);
+    
+    // 使用关联对象保存原始 IMP
+    NSString *key = [NSString stringWithFormat:@"origIMP_%@_%@", className, selName];
+    objc_setAssociatedObject(cls, NSSelectorFromString(key), [NSValue valueWithPointer:origIMP], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    
+    method_setImplementation(method, imp_implementationWithBlock(hookBlock));
+    
+    self.totalHookedMethods++;
+    return YES;
 }
 
-// Hook 2: JSContext evaluateScript:withSourceURL:
-static id (*orig_JSContext_evaluateScript_withSourceURL)(id self, SEL _cmd, NSString *script, NSURL *sourceURL);
-static id hook_JSContext_evaluateScript_withSourceURL(id self, SEL _cmd, NSString *script, NSURL *sourceURL) {
-    if (!script || script.length < 10) {
-        return orig_JSContext_evaluateScript_withSourceURL(self, _cmd, script, sourceURL);
+- (IMP)getOriginalIMP:(NSString *)className selector:(NSString *)selName {
+    Class cls = NSClassFromString(className);
+    if (!cls) return NULL;
+    
+    NSString *key = [NSString stringWithFormat:@"origIMP_%@_%@", className, selName];
+    NSValue *value = objc_getAssociatedObject(cls, NSSelectorFromString(key));
+    if (value) {
+        return (IMP)[value pointerValue];
     }
-    if (g_inHook) return orig_JSContext_evaluateScript_withSourceURL(self, _cmd, script, sourceURL);
-    g_inHook = YES;
-
-    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:script];
-    if (![modified isEqualToString:script]) {
-        NSString *log = [NSString stringWithFormat:@"✅ JSContext evaluateScript:withSourceURL: 已替换 | URL=%@", sourceURL.absoluteString];
-        NSLog(@"[Tweak] %@", log);
-        [[LogWindowManager sharedInstance] appendLog:log];
-    }
-
-    id result = orig_JSContext_evaluateScript_withSourceURL(self, _cmd, modified, sourceURL);
-    g_inHook = NO;
-    return result;
+    return NULL;
 }
 
-// Hook 3: WKWebView evaluateJavaScript:completionHandler:
-static void (*orig_WKWebView_evaluateJavaScript)(id self, SEL _cmd, NSString *javaScriptString, id completionHandler);
-static void hook_WKWebView_evaluateJavaScript(id self, SEL _cmd, NSString *javaScriptString, id completionHandler) {
-    if (!javaScriptString || javaScriptString.length < 10) {
-        orig_WKWebView_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
-        return;
-    }
+#pragma mark - ========== 图片中所有类的具体 Hook 实现 ==========
+
+// 1. GameDock - evaluateJavaScript:completionHandler:
+static void (*orig_GameDock_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_GameDock_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
     if (g_inHook) {
-        orig_WKWebView_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
+        orig_GameDock_evaluateJS(self, _cmd, script, completionHandler);
         return;
     }
     g_inHook = YES;
-
-    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:javaScriptString];
-    if (![modified isEqualToString:javaScriptString]) {
-        NSString *log = @"✅ WKWebView evaluateJavaScript: 已替换";
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [GameDock evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
     }
-
-    orig_WKWebView_evaluateJavaScript(self, _cmd, modified, completionHandler);
+    
+    orig_GameDock_evaluateJS(self, _cmd, script, completionHandler);
     g_inHook = NO;
 }
 
-// Hook 4: WKUserScript initWithSource: - WebView 注入脚本
-static id (*orig_WKUserScript_initWithSource)(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly);
-static id hook_WKUserScript_initWithSource(id self, SEL _cmd, NSString *source, WKUserScriptInjectionTime injectionTime, BOOL forMainFrameOnly) {
-    if (!source || source.length < 10) {
-        return orig_WKUserScript_initWithSource(self, _cmd, source, injectionTime, forMainFrameOnly);
+// 2. BDPGameContainer - evaluateJavaScript:completionHandler:
+static void (*orig_BDPGameContainer_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_BDPGameContainer_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_BDPGameContainer_evaluateJS(self, _cmd, script, completionHandler);
+        return;
     }
-    if (g_inHook) return orig_WKUserScript_initWithSource(self, _cmd, source, injectionTime, forMainFrameOnly);
     g_inHook = YES;
-
-    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:source];
-    if (![modified isEqualToString:source]) {
-        NSString *log = @"✅ WKUserScript initWithSource: 已替换";
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [BDPGameContainer evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
     }
+    
+    orig_BDPGameContainer_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
 
-    id result = orig_WKUserScript_initWithSource(self, _cmd, modified, injectionTime, forMainFrameOnly);
+// 3. MQPWebView - evaluateJavaScript:completionHandler:
+static void (*orig_MQPWebView_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_MQPWebView_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_MQPWebView_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [MQPWebView evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_MQPWebView_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+// 4. BDECRabbiFlyJSWorker - evaluateJavaScript:filename:
+static void (*orig_BDECRabbiFlyJSWorker_evaluateJS_filename)(id self, SEL _cmd, NSString *script, NSString *filename);
+static void hook_BDECRabbiFlyJSWorker_evaluateJS_filename(id self, SEL _cmd, NSString *script, NSString *filename) {
+    if (g_inHook) {
+        orig_BDECRabbiFlyJSWorker_evaluateJS_filename(self, _cmd, script, filename);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [BDECRabbiFlyJSWorker evaluateJavaScript:filename:%@] 发现目标字符串 | 长度:%lu", filename, (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_BDECRabbiFlyJSWorker_evaluateJS_filename(self, _cmd, script, filename);
+    g_inHook = NO;
+}
+
+// 5. BDPAIActionJSBridge - evaluateJavaScript:inWebView:completionHandler:
+static void (*orig_BDPAIActionJSBridge_evaluateJS_inWebView)(id self, SEL _cmd, NSString *script, id webView, id completionHandler);
+static void hook_BDPAIActionJSBridge_evaluateJS_inWebView(id self, SEL _cmd, NSString *script, id webView, id completionHandler) {
+    if (g_inHook) {
+        orig_BDPAIActionJSBridge_evaluateJS_inWebView(self, _cmd, script, webView, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [BDPAIActionJSBridge evaluateJavaScript:inWebView:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_BDPAIActionJSBridge_evaluateJS_inWebView(self, _cmd, script, webView, completionHandler);
+    g_inHook = NO;
+}
+
+// 6. JsWorkerIOS - evaluateJavaScript:param:
+static void (*orig_JsWorkerIOS_evaluateJS_param)(id self, SEL _cmd, NSString *script, id param);
+static void hook_JsWorkerIOS_evaluateJS_param(id self, SEL _cmd, NSString *script, id param) {
+    if (g_inHook) {
+        orig_JsWorkerIOS_evaluateJS_param(self, _cmd, script, param);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [JsWorkerIOS evaluateJavaScript:param:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_JsWorkerIOS_evaluateJS_param(self, _cmd, script, param);
+    g_inHook = NO;
+}
+
+// 7. LynxBackgroundRuntime - evaluateJavaScript:withSources:
+static void (*orig_LynxBackgroundRuntime_evaluateJS_withSources)(id self, SEL _cmd, NSString *script, id sources);
+static void hook_LynxBackgroundRuntime_evaluateJS_withSources(id self, SEL _cmd, NSString *script, id sources) {
+    if (g_inHook) {
+        orig_LynxBackgroundRuntime_evaluateJS_withSources(self, _cmd, script, sources);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [LynxBackgroundRuntime evaluateJavaScript:withSources:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_LynxBackgroundRuntime_evaluateJS_withSources(self, _cmd, script, sources);
+    g_inHook = NO;
+}
+
+// 8. BDPInteractCreationRuntime - evaluateJavaScriptSafely:completion:
+static void (*orig_BDPInteractCreationRuntime_evaluateJSSafely)(id self, SEL _cmd, NSString *script, id completion);
+static void hook_BDPInteractCreationRuntime_evaluateJSSafely(id self, SEL _cmd, NSString *script, id completion) {
+    if (g_inHook) {
+        orig_BDPInteractCreationRuntime_evaluateJSSafely(self, _cmd, script, completion);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [BDPInteractCreationRuntime evaluateJavaScriptSafely:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_BDPInteractCreationRuntime_evaluateJSSafely(self, _cmd, script, completion);
+    g_inHook = NO;
+}
+
+// 9. UPWebViewJavascriptBridgeBase - _evaluateJavascript:
+static void (*orig_UPWebViewJavascriptBridgeBase_evaluateJS)(id self, SEL _cmd, NSString *script);
+static void hook_UPWebViewJavascriptBridgeBase_evaluateJS(id self, SEL _cmd, NSString *script) {
+    if (g_inHook) {
+        orig_UPWebViewJavascriptBridgeBase_evaluateJS(self, _cmd, script);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [UPWebViewJavascriptBridgeBase _evaluateJavascript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_UPWebViewJavascriptBridgeBase_evaluateJS(self, _cmd, script);
+    g_inHook = NO;
+}
+
+// 10. UPWKWebViewJavascriptBridge - _evaluateJavascript:
+static void (*orig_UPWKWebViewJavascriptBridge_evaluateJS)(id self, SEL _cmd, NSString *script);
+static void hook_UPWKWebViewJavascriptBridge_evaluateJS(id self, SEL _cmd, NSString *script) {
+    if (g_inHook) {
+        orig_UPWKWebViewJavascriptBridge_evaluateJS(self, _cmd, script);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [UPWKWebViewJavascriptBridge _evaluateJavascript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_UPWKWebViewJavascriptBridge_evaluateJS(self, _cmd, script);
+    g_inHook = NO;
+}
+
+// 11. BDXMixABTestHelper - enableFixWebEvaluateJavaScript_100400 (返回 BOOL)
+static BOOL (*orig_BDXMixABTestHelper_enableFix)(id self, SEL _cmd);
+static BOOL hook_BDXMixABTestHelper_enableFix(id self, SEL _cmd) {
+    if (g_inHook) {
+        return orig_BDXMixABTestHelper_enableFix(self, _cmd);
+    }
+    g_inHook = YES;
+    
+    BOOL result = orig_BDXMixABTestHelper_enableFix(self, _cmd);
+    
+    NSString *log = [NSString stringWithFormat:@"🎯 [BDXMixABTestHelper enableFixWebEvaluateJavaScript_100400] 返回值: %@", result ? @"YES" : @"NO"];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+    
     g_inHook = NO;
     return result;
 }
 
-// Hook 5: NSURLSession 网络响应 - 只处理 JS 内容类型，避免处理所有响应
-static id (*orig_NSURLSession_dataTaskWithRequest_completion)(id self, SEL _cmd, NSURLRequest *request, id completionHandler);
-static id hook_NSURLSession_dataTaskWithRequest_completion(id self, SEL _cmd, NSURLRequest *request, id completionHandler) {
-    if (!completionHandler) {
-        return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, completionHandler);
+// 12. CJPayAnnieJSWorker - evaluateJavaScript:
+static void (*orig_CJPayAnnieJSWorker_evaluateJS)(id self, SEL _cmd, NSString *script);
+static void hook_CJPayAnnieJSWorker_evaluateJS(id self, SEL _cmd, NSString *script) {
+    if (g_inHook) {
+        orig_CJPayAnnieJSWorker_evaluateJS(self, _cmd, script);
+        return;
     }
-
-    NSString *urlString = request.URL.absoluteString ?: @"";
-    // 只处理可能的脚本/游戏包内容
-    BOOL isJSPackage = [urlString hasSuffix:@".js"] ||
-                       [urlString hasSuffix:@".json"] ||
-                       [urlString containsString:@"/script"] ||
-                       [urlString containsString:@".pkg"] ||
-                       [urlString containsString:@"ttpkg"] ||
-                       [urlString containsString:@"game"] ||
-                       [urlString containsString:@"wasm"] ||
-                       [urlString containsString:@".asm"];
-
-    if (!isJSPackage) {
-        return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, completionHandler);
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [CJPayAnnieJSWorker evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
     }
-
-    id modifiedCompletion = ^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (data && data.length > 0) {
-            NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            if (content && content.length > 10) {
-                if ([[FloatingButtonManager sharedInstance] stringContainsTarget:content]) {
-                    NSString *log = [NSString stringWithFormat:@"🎯 NSURLSession 发现目标 | URL=%@ | 长度:%lu", urlString, (unsigned long)content.length];
-                    NSLog(@"[Tweak] %@", log);
-                    [[LogWindowManager sharedInstance] appendLog:log];
-
-                    NSString *modifiedContent = [[FloatingButtonManager sharedInstance] replaceTargetInString:content];
-                    if (![modifiedContent isEqualToString:content]) {
-                        NSString *log2 = [NSString stringWithFormat:@"✅ NSURLSession: 已替换网络响应 | URL=%@", urlString];
-                        NSLog(@"[Tweak] %@", log2);
-                        [[LogWindowManager sharedInstance] appendLog:log2];
-                        data = [modifiedContent dataUsingEncoding:NSUTF8StringEncoding];
-                    }
-                }
-            }
-        }
-        void (^origBlock)(NSData *, NSURLResponse *, NSError *) = completionHandler;
-        origBlock(data, response, error);
-    };
-
-    return orig_NSURLSession_dataTaskWithRequest_completion(self, _cmd, request, modifiedCompletion);
+    
+    orig_CJPayAnnieJSWorker_evaluateJS(self, _cmd, script);
+    g_inHook = NO;
 }
 
-#pragma mark - ========== 启用 Hook ==========
+// 13. BDECRabbiFlyJSWorker - evaluateJavaScript: (第二个签名)
+static void (*orig_BDECRabbiFlyJSWorker_evaluateJS)(id self, SEL _cmd, NSString *script);
+static void hook_BDECRabbiFlyJSWorker_evaluateJS(id self, SEL _cmd, NSString *script) {
+    if (g_inHook) {
+        orig_BDECRabbiFlyJSWorker_evaluateJS(self, _cmd, script);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [BDECRabbiFlyJSWorker evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_BDECRabbiFlyJSWorker_evaluateJS(self, _cmd, script);
+    g_inHook = NO;
+}
+
+// 14. AMGMiniGameRuntime - evaluateJavaScript:completion:
+static void (*orig_AMGMiniGameRuntime_evaluateJS_completion)(id self, SEL _cmd, NSString *script, id completion);
+static void hook_AMGMiniGameRuntime_evaluateJS_completion(id self, SEL _cmd, NSString *script, id completion) {
+    if (g_inHook) {
+        orig_AMGMiniGameRuntime_evaluateJS_completion(self, _cmd, script, completion);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [AMGMiniGameRuntime evaluateJavaScript:completion:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_AMGMiniGameRuntime_evaluateJS_completion(self, _cmd, script, completion);
+    g_inHook = NO;
+}
+
+// 15. ADFGWebViewBridgeEngine - evaluateJavaScript:completionHandler:
+static void (*orig_ADFGWebViewBridgeEngine_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_ADFGWebViewBridgeEngine_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_ADFGWebViewBridgeEngine_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [ADFGWebViewBridgeEngine evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_ADFGWebViewBridgeEngine_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+// 16. AWEGameContainer - evaluateJavaScript:completionHandler:
+static void (*orig_AWEGameContainer_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_AWEGameContainer_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_AWEGameContainer_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [AWEGameContainer evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_AWEGameContainer_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+// 17. TTWebViewBridgeEngine - evaluateJavaScript:completionHandler:
+static void (*orig_TTWebViewBridgeEngine_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_TTWebViewBridgeEngine_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_TTWebViewBridgeEngine_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [TTWebViewBridgeEngine evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_TTWebViewBridgeEngine_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+// 18. BDXWebView - evaluateJavaScript:completionHandler:
+static void (*orig_BDXWebView_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_BDXWebView_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_BDXWebView_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [BDXWebView evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_BDXWebView_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+// 19. AnnieXWebViewLoader - evaluateJavaScript:completionHandler:
+static void (*orig_AnnieXWebViewLoader_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_AnnieXWebViewLoader_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_AnnieXWebViewLoader_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [AnnieXWebViewLoader evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_AnnieXWebViewLoader_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+// 20. LynxWebViewDefaultLoader - evaluateJavaScript:completionHandler:
+static void (*orig_LynxWebViewDefaultLoader_evaluateJS)(id self, SEL _cmd, NSString *script, id completionHandler);
+static void hook_LynxWebViewDefaultLoader_evaluateJS(id self, SEL _cmd, NSString *script, id completionHandler) {
+    if (g_inHook) {
+        orig_LynxWebViewDefaultLoader_evaluateJS(self, _cmd, script, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+    
+    if (script && [[FloatingButtonManager sharedInstance] stringContainsTarget:script]) {
+        NSString *log = [NSString stringWithFormat:@"🎯 [LynxWebViewDefaultLoader evaluateJavaScript:] 发现目标字符串 | 长度:%lu", (unsigned long)script.length];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+    
+    orig_LynxWebViewDefaultLoader_evaluateJS(self, _cmd, script, completionHandler);
+    g_inHook = NO;
+}
+
+#pragma mark - ========== 启用所有 Hook（App 启动时调用）==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用安全的运行时 Hook..."];
-
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用图片中所有类的 JS 执行 Hook..."];
+    
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSMutableString *log = [NSMutableString string];
-
-        void (^hookMethod)(NSString *, NSString *, IMP, IMP *) = ^(NSString *className, NSString *selName, IMP hookIMP, IMP *origIMP) {
-            Class cls = NSClassFromString(className);
+        NSMutableArray *batchLogs = [NSMutableArray array];
+        int successCount = 0;
+        int failCount = 0;
+        
+        // 定义所有要 Hook 的类和方法
+        struct HookDef {
+            const char *className;
+            const char *selName;
+            IMP hookIMP;
+            IMP *origIMPPtr;
+        } hookDefs[] = {
+            // 图片1
+            {"GameDock", "evaluateJavaScript:completionHandler:", (IMP)hook_GameDock_evaluateJS, (IMP *)&orig_GameDock_evaluateJS},
+            {"BDPGameContainer", "evaluateJavaScript:completionHandler:", (IMP)hook_BDPGameContainer_evaluateJS, (IMP *)&orig_BDPGameContainer_evaluateJS},
+            {"MQPWebView", "evaluateJavaScript:completionHandler:", (IMP)hook_MQPWebView_evaluateJS, (IMP *)&orig_MQPWebView_evaluateJS},
+            {"BDECRabbiFlyJSWorker", "evaluateJavaScript:filename:", (IMP)hook_BDECRabbiFlyJSWorker_evaluateJS_filename, (IMP *)&orig_BDECRabbiFlyJSWorker_evaluateJS_filename},
+            {"BDPAIActionJSBridge", "evaluateJavaScript:inWebView:completionHandler:", (IMP)hook_BDPAIActionJSBridge_evaluateJS_inWebView, (IMP *)&orig_BDPAIActionJSBridge_evaluateJS_inWebView},
+            {"JsWorkerIOS", "evaluateJavaScript:param:", (IMP)hook_JsWorkerIOS_evaluateJS_param, (IMP *)&orig_JsWorkerIOS_evaluateJS_param},
+            {"LynxBackgroundRuntime", "evaluateJavaScript:withSources:", (IMP)hook_LynxBackgroundRuntime_evaluateJS_withSources, (IMP *)&orig_LynxBackgroundRuntime_evaluateJS_withSources},
+            {"BDPInteractCreationRuntime", "evaluateJavaScriptSafely:completion:", (IMP)hook_BDPInteractCreationRuntime_evaluateJSSafely, (IMP *)&orig_BDPInteractCreationRuntime_evaluateJSSafely},
+            
+            // 图片2
+            {"UPWebViewJavascriptBridgeBase", "_evaluateJavascript:", (IMP)hook_UPWebViewJavascriptBridgeBase_evaluateJS, (IMP *)&orig_UPWebViewJavascriptBridgeBase_evaluateJS},
+            {"UPWKWebViewJavascriptBridge", "_evaluateJavascript:", (IMP)hook_UPWKWebViewJavascriptBridge_evaluateJS, (IMP *)&orig_UPWKWebViewJavascriptBridge_evaluateJS},
+            {"BDXMixABTestHelper", "enableFixWebEvaluateJavaScript_100400", (IMP)hook_BDXMixABTestHelper_enableFix, (IMP *)&orig_BDXMixABTestHelper_enableFix},
+            {"CJPayAnnieJSWorker", "evaluateJavaScript:", (IMP)hook_CJPayAnnieJSWorker_evaluateJS, (IMP *)&orig_CJPayAnnieJSWorker_evaluateJS},
+            {"BDECRabbiFlyJSWorker", "evaluateJavaScript:", (IMP)hook_BDECRabbiFlyJSWorker_evaluateJS, (IMP *)&orig_BDECRabbiFlyJSWorker_evaluateJS},
+            {"AMGMiniGameRuntime", "evaluateJavaScript:completion:", (IMP)hook_AMGMiniGameRuntime_evaluateJS_completion, (IMP *)&orig_AMGMiniGameRuntime_evaluateJS_completion},
+            {"ADFGWebViewBridgeEngine", "evaluateJavaScript:completionHandler:", (IMP)hook_ADFGWebViewBridgeEngine_evaluateJS, (IMP *)&orig_ADFGWebViewBridgeEngine_evaluateJS},
+            {"AWEGameContainer", "evaluateJavaScript:completionHandler:", (IMP)hook_AWEGameContainer_evaluateJS, (IMP *)&orig_AWEGameContainer_evaluateJS},
+            {"TTWebViewBridgeEngine", "evaluateJavaScript:completionHandler:", (IMP)hook_TTWebViewBridgeEngine_evaluateJS, (IMP *)&orig_TTWebViewBridgeEngine_evaluateJS},
+            {"BDXWebView", "evaluateJavaScript:completionHandler:", (IMP)hook_BDXWebView_evaluateJS, (IMP *)&orig_BDXWebView_evaluateJS},
+            {"AnnieXWebViewLoader", "evaluateJavaScript:completionHandler:", (IMP)hook_AnnieXWebViewLoader_evaluateJS, (IMP *)&orig_AnnieXWebViewLoader_evaluateJS},
+            {"LynxWebViewDefaultLoader", "evaluateJavaScript:completionHandler:", (IMP)hook_LynxWebViewDefaultLoader_evaluateJS, (IMP *)&orig_LynxWebViewDefaultLoader_evaluateJS},
+        };
+        
+        int totalHooks = sizeof(hookDefs) / sizeof(hookDefs[0]);
+        
+        for (int i = 0; i < totalHooks; i++) {
+            struct HookDef def = hookDefs[i];
+            Class cls = NSClassFromString([NSString stringWithUTF8String:def.className]);
             if (!cls) {
-                [log appendFormat:@"❌ %@ 类未找到\n", className];
-                return;
+                [batchLogs addObject:[NSString stringWithFormat:@"❌ %s 类未找到", def.className]];
+                failCount++;
+                continue;
             }
-
-            SEL sel = NSSelectorFromString(selName);
+            
+            SEL sel = NSSelectorFromString([NSString stringWithUTF8String:def.selName]);
             Method method = class_getInstanceMethod(cls, sel);
             if (!method) {
                 method = class_getClassMethod(cls, sel);
             }
+            
             if (!method) {
-                [log appendFormat:@"⚠️ %@ %@ 方法未找到\n", className, selName];
-                return;
+                [batchLogs addObject:[NSString stringWithFormat:@"⚠️ %s %s 方法未找到", def.className, def.selName]];
+                failCount++;
+                continue;
             }
-
-            *origIMP = method_getImplementation(method);
-            method_setImplementation(method, hookIMP);
-            [log appendFormat:@"✅ %@ %@ Hook 成功\n", className, selName];
-        };
-
-        // 只 Hook 4 个最安全的 JS 执行入口 + 1 个网络响应
-        hookMethod(@"JSContext", @"evaluateScript:", (IMP)hook_JSContext_evaluateScript, (IMP *)&orig_JSContext_evaluateScript);
-        hookMethod(@"JSContext", @"evaluateScript:withSourceURL:", (IMP)hook_JSContext_evaluateScript_withSourceURL, (IMP *)&orig_JSContext_evaluateScript_withSourceURL);
-        hookMethod(@"WKWebView", @"evaluateJavaScript:completionHandler:", (IMP)hook_WKWebView_evaluateJavaScript, (IMP *)&orig_WKWebView_evaluateJavaScript);
-        hookMethod(@"WKUserScript", @"initWithSource:injectionTime:forMainFrameOnly:", (IMP)hook_WKUserScript_initWithSource, (IMP *)&orig_WKUserScript_initWithSource);
-        hookMethod(@"NSURLSession", @"dataTaskWithRequest:completionHandler:", (IMP)hook_NSURLSession_dataTaskWithRequest_completion, (IMP *)&orig_NSURLSession_dataTaskWithRequest_completion);
-
-        int successCount = 0;
-        int failCount = 0;
-        NSArray *lines = [log componentsSeparatedByString:@"\n"];
-        for (NSString *line in lines) {
-            if ([line hasPrefix:@"✅"]) successCount++;
-            else if ([line hasPrefix:@"❌"] || [line hasPrefix:@"⚠️"]) failCount++;
+            
+            *def.origIMPPtr = method_getImplementation(method);
+            method_setImplementation(method, def.hookIMP);
+            
+            [batchLogs addObject:[NSString stringWithFormat:@"✅ %s %s Hook 成功", def.className, def.selName]];
+            successCount++;
         }
-
-        NSString *summary = [NSString stringWithFormat:@"Hook 启用完成 | 成功: %d | 失败: %d", successCount, failCount];
+        
+        self.totalHookedMethods = successCount;
+        
+        // 批量输出日志
+        [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
+        
+        NSString *summary = [NSString stringWithFormat:@"📊 Hook 启用完成 | 成功: %d | 失败: %d | 总计: %d", successCount, failCount, totalHooks];
         [[LogWindowManager sharedInstance] appendLog:summary];
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            NSString *title = successCount > 0 ? @"Hook 启用成功" : @"Hook 启用失败";
-            NSString *message = [NSString stringWithFormat:@"成功: %d\n失败: %d\n\n%@", successCount, failCount, log];
-            [self showMessage:title message:message];
-        });
+        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 JS 执行 Hook 已静默启用，目标字符串检测已激活"];
     });
 }
 
@@ -847,7 +1127,7 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
             int count = [results[targetStr] intValue];
             NSArray *addrs = addresses[targetStr];
 
-            [batchLogs addObject:[NSString stringWithFormat:@"📌 \'%@\' 找到 %d 处", targetStr, count]];
+            [batchLogs addObject:[NSString stringWithFormat:@"📌 '%@' 找到 %d 处", targetStr, count]];
 
             int logCount = MIN((int)addrs.count, 10);
             for (int i = 0; i < logCount; i++) {

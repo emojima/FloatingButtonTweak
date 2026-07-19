@@ -531,6 +531,12 @@
 
 #pragma mark - ========== 日志输出工具 ==========
 
+- (NSString *)truncateString:(NSString *)string maxLength:(NSInteger)maxLength {
+    if (!string || string.length == 0) return @"(nil)";
+    if (string.length <= maxLength) return string;
+    return [NSString stringWithFormat:@"%@...(%lu)", [string substringToIndex:maxLength], (unsigned long)(string.length - maxLength)];
+}
+
 - (NSString *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
     if (!data || data.length == 0) return @"(nil)";
     NSString *hexStr = [data description];
@@ -541,7 +547,7 @@
 - (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength {
     if (!obj) return @"(nil)";
     if ([obj isKindOfClass:[NSString class]]) {
-        return (NSString *)obj;
+        return [self truncateString:(NSString *)obj maxLength:120];
     }
     if ([obj isKindOfClass:[NSData class]]) {
         return [self truncateData:(NSData *)obj maxLength:maxLength];
@@ -642,7 +648,7 @@ static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUser
     if (userScript) {
         NSString *src = [userScript source];
         if (src) {
-            source = src;
+            source = [[FloatingButtonManager sharedInstance] truncateString:src maxLength:120];
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:src];
         }
     }
@@ -701,7 +707,7 @@ static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, 
     NSString *strPreview = @"(nil)";
     BOOL hasTarget = NO;
     if (result) {
-        strPreview = result;
+        strPreview = [[FloatingButtonManager sharedInstance] truncateString:result maxLength:120];
         hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:result];
     }
 
@@ -732,7 +738,10 @@ static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *j
     BOOL didReplace = ![modified isEqualToString:javaScriptString];
     BOOL hasTarget = javaScriptString && [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
 
-    NSString *preview = javaScriptString ?: @"(nil)";
+    NSString *preview = @"(nil)";
+    if (javaScriptString) {
+        preview = [[FloatingButtonManager sharedInstance] truncateString:javaScriptString maxLength:120];
+    }
 
     NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
@@ -768,7 +777,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:str];
             modifiedScript = modified;
             didReplace = ![modified isEqualToString:str];
-            scriptPreview = str;
+            scriptPreview = [[FloatingButtonManager sharedInstance] truncateString:str maxLength:120];
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
         } else if ([script isKindOfClass:[NSData class]]) {
             scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)script maxLength:80];

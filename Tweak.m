@@ -23,8 +23,8 @@
 @property (nonatomic, strong) UIView *logContainerView;
 @property (nonatomic, strong) UITextView *logTextView;
 @property (nonatomic, strong) UIButton *closeButton;
-@property (nonatomic, strong) UIButton *copyButton;
-@property (nonatomic, strong) UIButton *clearButton;
+@property (nonatomic, strong) UIButton *logCopyButton;
+@property (nonatomic, strong) UIButton *logClearButton;
 @property (nonatomic, strong) UIView *titleBar;
 @property (nonatomic, strong) NSMutableString *logBuffer;
 @property (nonatomic, assign) BOOL isVisible;
@@ -135,20 +135,20 @@
     [self.titleBar addSubview:titleLabel];
 
     // 复制按钮
-    self.copyButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.copyButton.frame = CGRectMake(windowWidth - 140, 4, 40, 28);
-    [self.copyButton setTitle:@"📋" forState:UIControlStateNormal];
-    self.copyButton.titleLabel.font = [UIFont systemFontOfSize:14];
-    [self.copyButton addTarget:self action:@selector(copyLogContent) forControlEvents:UIControlEventTouchUpInside];
-    [self.titleBar addSubview:self.copyButton];
+    self.logCopyButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.logCopyButton.frame = CGRectMake(windowWidth - 140, 4, 40, 28);
+    [self.logCopyButton setTitle:@"📋" forState:UIControlStateNormal];
+    self.logCopyButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.logCopyButton addTarget:self action:@selector(copyLogContent) forControlEvents:UIControlEventTouchUpInside];
+    [self.titleBar addSubview:self.logCopyButton];
 
     // 清空按钮
-    self.clearButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.clearButton.frame = CGRectMake(windowWidth - 95, 4, 40, 28);
-    [self.clearButton setTitle:@"🗑️" forState:UIControlStateNormal];
-    self.clearButton.titleLabel.font = [UIFont systemFontOfSize:14];
-    [self.clearButton addTarget:self action:@selector(clearLogContent) forControlEvents:UIControlEventTouchUpInside];
-    [self.titleBar addSubview:self.clearButton];
+    self.logClearButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.logClearButton.frame = CGRectMake(windowWidth - 95, 4, 40, 28);
+    [self.logClearButton setTitle:@"🗑️" forState:UIControlStateNormal];
+    self.logClearButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.logClearButton addTarget:self action:@selector(clearLogContent) forControlEvents:UIControlEventTouchUpInside];
+    [self.titleBar addSubview:self.logClearButton];
 
     // 关闭按钮
     self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];

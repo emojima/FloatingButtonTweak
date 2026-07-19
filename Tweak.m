@@ -17,6 +17,14 @@
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
+// 新增：统一替换入口，支持 NSString 和 NSData
+- (id)replaceTargetInObject:(id)obj;
+// 新增：NSData 替换
+- (NSData *)replaceTargetInData:(NSData *)data;
+- (NSString *)replaceTargetInString:(NSString *)string;
+- (NSString *)targetKeyword;
+- (BOOL)stringContainsTarget:(NSString *)string;
+- (BOOL)dataContainsTarget:(NSData *)data;
 @end
 
 @interface LogWindowManager : NSObject
@@ -59,8 +67,6 @@
         _isVisible = NO;
         _lastTranslation = CGPointZero;
         _logEnabled = NO;
-
-        // 初始化日志文件路径
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
         NSString *documentsDir = [paths firstObject];
         _logFilePath = [documentsDir stringByAppendingPathComponent:@"TweakHookLog.txt"];
@@ -237,7 +243,6 @@
             self.logTextView.text = @"";
         }
     } else {
-        // 开启时记录日志文件路径
         NSString *log = [NSString stringWithFormat:@"📁 日志文件路径: %@", self.logFilePath];
         [self writeLogToFile:log];
     }
@@ -245,28 +250,22 @@
 
 - (void)handleTitleBarPan:(UIPanGestureRecognizer *)gesture {
     CGPoint translation = [gesture translationInView:self.logContainerView.superview];
-
     if (gesture.state == UIGestureRecognizerStateBegan) {
         self.lastTranslation = CGPointZero;
     }
-
     if (gesture.state == UIGestureRecognizerStateChanged) {
         CGFloat deltaX = translation.x - self.lastTranslation.x;
         CGFloat deltaY = translation.y - self.lastTranslation.y;
-
         CGRect newFrame = self.logContainerView.frame;
         newFrame.origin.x += deltaX;
         newFrame.origin.y += deltaY;
-
         CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
         CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
         newFrame.origin.x = MAX(0, MIN(newFrame.origin.x, screenWidth - newFrame.size.width));
         newFrame.origin.y = MAX(0, MIN(newFrame.origin.y, screenHeight - newFrame.size.height));
-
         self.logContainerView.frame = newFrame;
         self.lastTranslation = translation;
     }
-
     if (gesture.state == UIGestureRecognizerStateEnded ||
         gesture.state == UIGestureRecognizerStateCancelled) {
         self.lastTranslation = CGPointZero;
@@ -276,12 +275,10 @@
 
 - (void)writeLogToFile:(NSString *)log {
     if (!log || log.length == 0) return;
-
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
     NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, log];
-
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:self.logFilePath]) {
         [formattedLog writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
@@ -295,22 +292,15 @@
     }
 }
 
-// 同时写入完整日志到文件和截断日志到窗口
 - (void)appendLogFull:(NSString *)fullLog displayLog:(NSString *)displayLog {
     if (!self.logEnabled) return;
     if (!fullLog || fullLog.length == 0) return;
-
-    // 写入文件（完整日志，不截断）
     [self writeLogToFile:fullLog];
-
-    // 显示到窗口（使用 displayLog，如果为 nil 则使用 fullLog）
     NSString *showLog = displayLog ?: fullLog;
-
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     [formatter setDateFormat:@"HH:mm:ss"];
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
     NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, showLog];
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.logBuffer appendString:formattedLog];
         if (self.logTextView) {
@@ -324,19 +314,13 @@
 - (void)appendLog:(NSString *)log {
     if (!self.logEnabled) return;
     if (!log || log.length == 0) return;
-
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     [formatter setDateFormat:@"HH:mm:ss"];
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
-
     NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, log];
-
-    // 写入文件（完整日志，不截断）
     [self writeLogToFile:log];
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.logBuffer appendString:formattedLog];
-
         if (self.logTextView) {
             self.logTextView.text = self.logBuffer;
             NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
@@ -348,53 +332,16 @@
 - (void)appendLogsBatch:(NSArray *)logs {
     if (!self.logEnabled) return;
     if (!logs || logs.count == 0) return;
-
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     [formatter setDateFormat:@"HH:mm:ss"];
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
-
     NSMutableString *batch = [NSMutableString string];
     for (NSString *log in logs) {
         [batch appendFormat:@"[%@] %@\n", timestamp, log];
-        // 写入文件（完整日志，不截断）
         [self writeLogToFile:log];
     }
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.logBuffer appendString:batch];
-
-        if (self.logTextView) {
-            self.logTextView.text = self.logBuffer;
-            NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
-            [self.logTextView scrollRangeToVisible:bottom];
-        }
-    });
-}
-
-// 批量写入完整日志到文件，显示截断版本到窗口
-- (void)appendLogsBatchFull:(NSArray *)fullLogs displayLogs:(NSArray *)displayLogs {
-    if (!self.logEnabled) return;
-    if (!fullLogs || fullLogs.count == 0) return;
-
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:@"HH:mm:ss"];
-    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
-
-    NSMutableString *batch = [NSMutableString string];
-    for (int i = 0; i < fullLogs.count; i++) {
-        NSString *fullLog = fullLogs[i];
-        NSString *displayLog = (i < displayLogs.count) ? displayLogs[i] : fullLog;
-
-        // 写入文件（完整日志）
-        [self writeLogToFile:fullLog];
-
-        // 添加到窗口缓冲区
-        [batch appendFormat:@"[%@] %@\n", timestamp, displayLog];
-    }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self.logBuffer appendString:batch];
-
         if (self.logTextView) {
             self.logTextView.text = self.logBuffer;
             NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
@@ -431,17 +378,13 @@
         [self ensureButtonOnTop];
         return;
     }
-
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-
     self.lastWindow = keyWindow;
-
     CGFloat buttonSize = 55.0;
     CGFloat padding = 20.0;
     CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
     CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
-
     self.floatingButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.floatingButton.frame = CGRectMake(
         screenWidth - buttonSize - padding,
@@ -449,26 +392,20 @@
         buttonSize,
         buttonSize
     );
-
     self.floatingButton.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:1.0 alpha:0.85];
     self.floatingButton.layer.cornerRadius = buttonSize / 2;
     self.floatingButton.layer.shadowColor = [UIColor blackColor].CGColor;
     self.floatingButton.layer.shadowOffset = CGSizeMake(0, 2);
     self.floatingButton.layer.shadowRadius = 4;
     self.floatingButton.layer.shadowOpacity = 0.3;
-
     [self.floatingButton setTitle:@"+" forState:UIControlStateNormal];
     [self.floatingButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     self.floatingButton.titleLabel.font = [UIFont systemFontOfSize:28 weight:UIFontWeightBold];
-
     [self.floatingButton addTarget:self action:@selector(buttonTapped:) forControlEvents:UIControlEventTouchUpInside];
-
     UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [self.floatingButton addGestureRecognizer:panGesture];
-
     [keyWindow addSubview:self.floatingButton];
     [keyWindow bringSubviewToFront:self.floatingButton];
-
     [self startKeepOnTopTimer];
 }
 
@@ -483,10 +420,8 @@
 
 - (void)ensureButtonOnTop {
     if (!self.floatingButton) return;
-
     UIWindow *topWindow = [self topmostWindow];
     if (!topWindow) return;
-
     if (self.floatingButton.superview != topWindow) {
         CGRect oldFrame = self.floatingButton.frame;
         [self.floatingButton removeFromSuperview];
@@ -494,9 +429,7 @@
         self.floatingButton.frame = oldFrame;
         self.lastWindow = topWindow;
     }
-
     [topWindow bringSubviewToFront:self.floatingButton];
-
     LogWindowManager *logMgr = [LogWindowManager sharedInstance];
     if (logMgr.logContainerView && logMgr.logContainerView.superview == topWindow) {
         [topWindow insertSubview:logMgr.logContainerView belowSubview:self.floatingButton];
@@ -505,7 +438,6 @@
 
 - (UIWindow *)topmostWindow {
     NSArray *windows = nil;
-
     if (@available(iOS 13.0, *)) {
         NSMutableArray *allWindows = [NSMutableArray array];
         for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
@@ -517,7 +449,6 @@
     } else {
         windows = [UIApplication sharedApplication].windows;
     }
-
     UIWindow *topWindow = nil;
     for (UIWindow *window in windows) {
         if (!window.hidden && window.alpha > 0) {
@@ -526,7 +457,6 @@
             }
         }
     }
-
     return topWindow ?: [UIApplication sharedApplication].keyWindow;
 }
 
@@ -537,28 +467,22 @@
         }];
         return;
     }
-
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-
     UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
-
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🛠️ 功能菜单"
                                                                    message:@"请选择要执行的功能"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
-
     NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
     BOOL logEnabled = [[LogWindowManager sharedInstance] logEnabled];
     NSString *logSwitchTitle = logEnabled ? @"🔴 关闭日志输出" : @"🟢 开启日志输出";
     NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@" (已替换 %d 次)", self.totalReplacedCount] : @"";
-
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"运行时字符串替换%@", replaceStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
         NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
         [self showMessage:@"替换状态" message:msg];
     }]];
-
     [alert addAction:[UIAlertAction actionWithTitle:logSwitchTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
         BOOL newState = ![[LogWindowManager sharedInstance] logEnabled];
@@ -566,62 +490,101 @@
         NSString *msg = newState ? @"日志输出已开启" : @"日志输出已关闭，日志已清空";
         [self showMessage:@"日志开关" message:msg];
     }]];
-
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
         [self searchWASMMemory];
     }]];
-
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"日志窗口%@", logStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
         [[LogWindowManager sharedInstance] toggleLogWindow];
     }]];
-
     [alert addAction:[UIAlertAction actionWithTitle:@"关闭悬浮窗" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
         [self hideFloatingButton];
     }]];
-
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
     }]];
-
     self.currentMenuAlert = alert;
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [topVC presentViewController:alert animated:YES completion:nil];
     });
 }
 
-#pragma mark - ========== 字符串替换工具 ==========
-
-- (NSString *)replaceTargetInString:(NSString *)string {
-    if (!string || string.length < 20) return string;
-
-    NSString *target = @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
-    NSString *replacement = @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
-
-    if ([string containsString:target]) {
-        NSString *modified = [string stringByReplacingOccurrencesOfString:target withString:replacement];
-        if (![modified isEqualToString:string]) {
-            self.totalReplacedCount++;
-            NSString *log = [NSString stringWithFormat:@"✅ 字符串替换成功 (第 %d 次)", self.totalReplacedCount];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            return modified;
-        }
-    }
-
-    return string;
-}
+#pragma mark - ========== 字符串替换工具（增强版：支持 NSString 和 NSData）==========
 
 - (NSString *)targetKeyword {
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
+- (NSString *)replacementString {
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
+}
+
 - (BOOL)stringContainsTarget:(NSString *)string {
     if (!string || string.length < 10) return NO;
     return [string containsString:[self targetKeyword]];
+}
+
+- (BOOL)dataContainsTarget:(NSData *)data {
+    if (!data || data.length < 20) return NO;
+    NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!str) {
+        str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+    }
+    if (!str) return NO;
+    return [self stringContainsTarget:str];
+}
+
+- (NSString *)replaceTargetInString:(NSString *)string {
+    if (!string || string.length < 20) return string;
+    NSString *target = [self targetKeyword];
+    NSString *replacement = [self replacementString];
+    if ([string containsString:target]) {
+        NSString *modified = [string stringByReplacingOccurrencesOfString:target withString:replacement];
+        if (![modified isEqualToString:string]) {
+            self.totalReplacedCount++;
+            NSString *log = [NSString stringWithFormat:@"✅ NSString 替换成功 (第 %d 次)", self.totalReplacedCount];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            return modified;
+        }
+    }
+    return string;
+}
+
+- (NSData *)replaceTargetInData:(NSData *)data {
+    if (!data || data.length < 20) return data;
+    NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!str) {
+        str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+    }
+    if (!str || str.length < 20) return data;
+    
+    NSString *modified = [self replaceTargetInString:str];
+    if (![modified isEqualToString:str]) {
+        NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
+        if (newData) {
+            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 (第 %d 次) | 原长度:%lu -> 新长度:%lu", 
+                           self.totalReplacedCount, (unsigned long)data.length, (unsigned long)newData.length];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            return newData;
+        }
+    }
+    return data;
+}
+
+// 统一替换入口：自动判断类型，返回同类型替换后对象
+- (id)replaceTargetInObject:(id)obj {
+    if (!obj) return obj;
+    if ([obj isKindOfClass:[NSString class]]) {
+        return [self replaceTargetInString:(NSString *)obj];
+    }
+    if ([obj isKindOfClass:[NSData class]]) {
+        return [self replaceTargetInData:(NSData *)obj];
+    }
+    return obj;
 }
 
 #pragma mark - ========== 日志输出工具 ==========
@@ -677,7 +640,6 @@ static _Thread_local BOOL g_inHook = NO;
 #pragma mark - ========== 用户指定的 Hook 实现 ==========
 
 // ========== 1. BDPWKURLSchemeHandler ==========
-// -(void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask;
 
 static void (*orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask)(id self, SEL _cmd, WKWebView *webView, id urlSchemeTask);
 static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _cmd, WKWebView *webView, id urlSchemeTask) {
@@ -686,7 +648,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         return;
     }
     g_inHook = YES;
-
     NSString *urlStr = @"(nil)";
     if (urlSchemeTask && [urlSchemeTask respondsToSelector:@selector(request)]) {
         NSURLRequest *req = [urlSchemeTask request];
@@ -694,18 +655,14 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
             urlStr = [req.URL absoluteString];
         }
     }
-
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
                            [[FloatingButtonManager sharedInstance] truncateString:urlStr maxLength:120]];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
     g_inHook = NO;
 }
-
-// -(void)handleResponseWithTask:(id)task data:(id)data ofURLInfo:(id)urlInfo withError:(id)error;
 
 static void (*orig_BDPWKURLSchemeHandler_handleResponseWithTask)(id self, SEL _cmd, id task, id data, id urlInfo, id error);
 static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd, id task, id data, id urlInfo, id error) {
@@ -714,28 +671,40 @@ static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd,
         return;
     }
     g_inHook = YES;
-
+    
+    // 对 data 参数进行字符串检查和替换（支持 NSString 和 NSData）
+    id modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInObject:data];
+    BOOL didReplaceData = (modifiedData != data && ![modifiedData isEqual:data]);
+    BOOL hasTargetInData = NO;
+    if ([data isKindOfClass:[NSString class]]) {
+        hasTargetInData = [[FloatingButtonManager sharedInstance] stringContainsTarget:(NSString *)data];
+    } else if ([data isKindOfClass:[NSData class]]) {
+        hasTargetInData = [[FloatingButtonManager sharedInstance] dataContainsTarget:(NSData *)data];
+    }
+    
     NSString *taskDesc = [[FloatingButtonManager sharedInstance] objectDescription:task maxLength:80];
     NSString *dataDesc = [[FloatingButtonManager sharedInstance] objectDescription:data maxLength:120];
     NSString *urlInfoDesc = [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:120];
     NSString *errorDesc = [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:80];
-
-    NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+                     hasTargetInData ? @"🎯" : @"📋",
                      [[FloatingButtonManager sharedInstance] objectDescription:task maxLength:1000], 
                      [[FloatingButtonManager sharedInstance] objectDescription:data maxLength:2000], 
                      [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:2000], 
                      [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:1000]];
-    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKURLSchemeHandler handleResponseWithTask] %@ %@ | task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+                     hasTargetInData ? @"🎯" : @"📋",
+                     hasTargetInData ? @"发现目标" : @"",
+                     didReplaceData ? @"[已替换]" : @"",
                      taskDesc, dataDesc, urlInfoDesc, errorDesc];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
-    orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, data, urlInfo, error);
+    
+    orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, modifiedData, urlInfo, error);
     g_inHook = NO;
 }
 
 // ========== 2. WKUserContentController ==========
-// -(void)addUserScript:(WKUserScript *)userScript;
 
 static void (*orig_WKUserContentController_addUserScript)(id self, SEL _cmd, WKUserScript *userScript);
 static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUserScript *userScript) {
@@ -744,39 +713,44 @@ static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUser
         return;
     }
     g_inHook = YES;
-
     NSString *source = @"(nil)";
     BOOL hasTarget = NO;
+    BOOL didReplace = NO;
+    WKUserScript *modifiedScript = userScript;
     if (userScript) {
         NSString *src = [userScript source];
         if (src) {
             source = [[FloatingButtonManager sharedInstance] truncateString:src maxLength:120];
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:src];
+            NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:src];
+            didReplace = ![modified isEqualToString:src];
+            if (didReplace) {
+                modifiedScript = [[WKUserScript alloc] initWithSource:modified injectionTime:[userScript injectionTime] forMainFrameOnly:[userScript isForMainFrameOnly]];
+            }
         }
     }
-
     NSString *srcFull = @"(nil)";
     if (userScript) {
         NSString *src = [userScript source];
         if (src) srcFull = src;
     }
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ | source=%@",
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ %@ | source=%@",
                      hasTarget ? @"🎯" : @"📋",
                      hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
                      srcFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ | source=%@",
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ %@ | source=%@",
                      hasTarget ? @"🎯" : @"📋",
                      hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
                      source];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
-    orig_WKUserContentController_addUserScript(self, _cmd, userScript);
+    orig_WKUserContentController_addUserScript(self, _cmd, modifiedScript);
     g_inHook = NO;
 }
 
 // ========== 3. BDPLocalFileManager ==========
-// -(NSData *)readFileWithLocalURL:(NSURL *)url error:(id *)error;
 
 static NSData *(*orig_BDPLocalFileManager_readFileWithLocalURL)(id self, SEL _cmd, NSURL *url, id *error);
 static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, NSURL *url, id *error) {
@@ -784,30 +758,37 @@ static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, 
         return orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
     }
     g_inHook = YES;
-
     NSString *urlStr = url ? [url absoluteString] : @"(nil)";
-
     NSData *result = orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
-
+    
+    // 对返回的 NSData 进行字符串检查和替换
+    NSData *modifiedResult = [[FloatingButtonManager sharedInstance] replaceTargetInData:result];
+    BOOL didReplace = (modifiedResult != result && ![modifiedResult isEqual:result]);
+    BOOL hasTarget = result ? [[FloatingButtonManager sharedInstance] dataContainsTarget:result] : NO;
+    
     NSString *dataPreview = @"(nil)";
     if (result) {
         dataPreview = [[FloatingButtonManager sharedInstance] truncateData:result maxLength:80];
     }
-
     NSString *dataFull = @"(nil)";
     if (result) {
         dataFull = [result description];
     }
-    NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPLocalFileManager readFileWithLocalURL] url=%@ -> data=%@", urlStr, dataFull];
-    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPLocalFileManager readFileWithLocalURL] url=%@ -> data=%@", urlStr, dataPreview];
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager readFileWithLocalURL] %@ %@ | url=%@ -> data=%@", 
+                     hasTarget ? @"🎯" : @"📋",
+                     hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
+                     urlStr, dataFull];
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager readFileWithLocalURL] %@ %@ | url=%@ -> data=%@", 
+                     hasTarget ? @"🎯" : @"📋",
+                     hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
+                     urlStr, dataPreview];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
     g_inHook = NO;
-    return result;
+    return modifiedResult;
 }
-
-// -(NSString *)stringWithLocalURL:(NSURL *)url encoding:(unsigned long)encoding error:(id *)error;
 
 static NSString *(*orig_BDPLocalFileManager_stringWithLocalURL)(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error);
 static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error) {
@@ -815,41 +796,38 @@ static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, 
         return orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
     }
     g_inHook = YES;
-
     NSString *urlStr = url ? [url absoluteString] : @"(nil)";
-
     NSString *result = orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
-
+    
+    // 对返回的 NSString 进行替换
+    NSString *modifiedResult = [[FloatingButtonManager sharedInstance] replaceTargetInString:result];
+    BOOL didReplace = ![modifiedResult isEqualToString:result];
+    BOOL hasTarget = result ? [[FloatingButtonManager sharedInstance] stringContainsTarget:result] : NO;
+    
     NSString *strPreview = @"(nil)";
-    BOOL hasTarget = NO;
     if (result) {
         strPreview = [[FloatingButtonManager sharedInstance] truncateString:result maxLength:120];
-        hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:result];
     }
-
-    NSString *strFull = @"(nil)";
-    if (result) {
-        strFull = result;
-    }
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ | url=%@ -> string=%@",
+    NSString *strFull = result ?: @"(nil)";
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ %@ | url=%@ -> string=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (unsigned long)encoding,
                      hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
                      urlStr, strFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ | url=%@ -> string=%@",
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ %@ | url=%@ -> string=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (unsigned long)encoding,
                      hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
                      urlStr, strPreview];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
     g_inHook = NO;
-    return result;
+    return modifiedResult;
 }
 
 // ========== 4. BDPWKGamePage ==========
-// -(void)evaluateJavaScript:(NSString *)javaScriptString completionHandler:(void (^)(id, NSError *))completionHandler;
 
 static void (*orig_BDPWKGamePage_evaluateJavaScript)(id self, SEL _cmd, NSString *javaScriptString, id completionHandler);
 static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *javaScriptString, id completionHandler) {
@@ -858,16 +836,13 @@ static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *j
         return;
     }
     g_inHook = YES;
-
     NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:javaScriptString];
     BOOL didReplace = ![modified isEqualToString:javaScriptString];
     BOOL hasTarget = javaScriptString && [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
-
     NSString *preview = @"(nil)";
     if (javaScriptString) {
         preview = [[FloatingButtonManager sharedInstance] truncateString:javaScriptString maxLength:120];
     }
-
     NSString *scriptFull = javaScriptString ?: @"(nil)";
     NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
@@ -881,13 +856,11 @@ static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *j
                      preview];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
     orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, modified, completionHandler);
     g_inHook = NO;
 }
 
 // ========== 5. BDPWKGameBusinessEngine ==========
-// -(void)evaluateScript:(id)pageID:(NSInteger)dest:(NSUInteger)completion:(id);
 
 static void (*orig_BDPWKGameBusinessEngine_evaluateScript)(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion);
 static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion) {
@@ -896,37 +869,31 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         return;
     }
     g_inHook = YES;
-
-    NSString *scriptPreview = @"(nil)";
+    
+    // 统一替换入口：支持 NSString 和 NSData
+    id modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInObject:script];
+    BOOL didReplace = (modifiedScript != script && ![modifiedScript isEqual:script]);
     BOOL hasTarget = NO;
-    BOOL didReplace = NO;
-    id modifiedScript = script;
-
+    NSString *scriptPreview = @"(nil)";
+    NSString *scriptFull = @"(nil)";
+    
     if (script) {
         if ([script isKindOfClass:[NSString class]]) {
             NSString *str = (NSString *)script;
-            NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:str];
-            modifiedScript = modified;
-            didReplace = ![modified isEqualToString:str];
             scriptPreview = [[FloatingButtonManager sharedInstance] truncateString:str maxLength:120];
+            scriptFull = str;
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
         } else if ([script isKindOfClass:[NSData class]]) {
-            scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)script maxLength:80];
+            NSData *data = (NSData *)script;
+            scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:data maxLength:80];
+            scriptFull = [data description];
+            hasTarget = [[FloatingButtonManager sharedInstance] dataContainsTarget:data];
         } else {
             scriptPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([script class]), script];
+            scriptFull = scriptPreview;
         }
     }
-
-    NSString *scriptFull = @"(nil)";
-    if (script) {
-        if ([script isKindOfClass:[NSString class]]) {
-            scriptFull = (NSString *)script;
-        } else if ([script isKindOfClass:[NSData class]]) {
-            scriptFull = [(NSData *)script description];
-        } else {
-            scriptFull = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([script class]), script];
-        }
-    }
+    
     NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (long)pageID,
@@ -943,7 +910,6 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                      scriptPreview];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-
     orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, modifiedScript, pageID, dest, completion);
     g_inHook = NO;
 }
@@ -951,13 +917,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
 #pragma mark - ========== 启用所有 Hook（App 启动时调用）==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook..."];
-
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook...（增强版：支持 NSString/NSData 统一替换）"];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *batchLogs = [NSMutableArray array];
         int successCount = 0;
         int failCount = 0;
-
+        
         // 1. BDPWKURLSchemeHandler - webView:startURLSchemeTask:
         {
             Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
@@ -978,7 +943,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 }
             }
         }
-
+        
         // 2. BDPWKURLSchemeHandler - handleResponseWithTask:data:ofURLInfo:withError:
         {
             Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
@@ -994,12 +959,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKURLSchemeHandler_handleResponseWithTask = (void (*)(id, SEL, id, id, id, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_handleResponseWithTask);
-                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: Hook 成功"];
+                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: Hook 成功 [支持 NSData 替换]"];
                     successCount++;
                 }
             }
         }
-
+        
         // 3. WKUserContentController - addUserScript:
         {
             Class cls = NSClassFromString(@"WKUserContentController");
@@ -1015,12 +980,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_WKUserContentController_addUserScript = (void (*)(id, SEL, WKUserScript *))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_WKUserContentController_addUserScript);
-                    [batchLogs addObject:@"✅ WKUserContentController addUserScript: Hook 成功"];
+                    [batchLogs addObject:@"✅ WKUserContentController addUserScript: Hook 成功 [支持脚本替换]"];
                     successCount++;
                 }
             }
         }
-
+        
         // 4. BDPLocalFileManager
         {
             Class cls = NSClassFromString(@"BDPLocalFileManager");
@@ -1036,10 +1001,9 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPLocalFileManager_readFileWithLocalURL = (NSData *(*)(id, SEL, NSURL *, id *))method_getImplementation(method1);
                     method_setImplementation(method1, (IMP)hook_BDPLocalFileManager_readFileWithLocalURL);
-                    [batchLogs addObject:@"✅ BDPLocalFileManager readFileWithLocalURL:error: Hook 成功"];
+                    [batchLogs addObject:@"✅ BDPLocalFileManager readFileWithLocalURL:error: Hook 成功 [支持 NSData 替换]"];
                     successCount++;
                 }
-
                 SEL sel2 = NSSelectorFromString(@"stringWithLocalURL:encoding:error:");
                 Method method2 = class_getInstanceMethod(cls, sel2);
                 if (!method2) {
@@ -1048,12 +1012,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPLocalFileManager_stringWithLocalURL = (NSString *(*)(id, SEL, NSURL *, unsigned long, id *))method_getImplementation(method2);
                     method_setImplementation(method2, (IMP)hook_BDPLocalFileManager_stringWithLocalURL);
-                    [batchLogs addObject:@"✅ BDPLocalFileManager stringWithLocalURL:encoding:error: Hook 成功"];
+                    [batchLogs addObject:@"✅ BDPLocalFileManager stringWithLocalURL:encoding:error: Hook 成功 [支持 NSString 替换]"];
                     successCount++;
                 }
             }
         }
-
+        
         // 5. BDPWKGamePage - evaluateJavaScript:completionHandler:
         {
             Class cls = NSClassFromString(@"BDPWKGamePage");
@@ -1069,12 +1033,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKGamePage_evaluateJavaScript = (void (*)(id, SEL, NSString *, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKGamePage_evaluateJavaScript);
-                    [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功"];
+                    [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功 [支持 NSString 替换]"];
                     successCount++;
                 }
             }
         }
-
+        
         // 6. BDPWKGameBusinessEngine - evaluateScript:pageID:dest:completion:
         {
             Class cls = NSClassFromString(@"BDPWKGameBusinessEngine");
@@ -1090,34 +1054,29 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKGameBusinessEngine_evaluateScript = (void (*)(id, SEL, id, NSInteger, NSUInteger, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKGameBusinessEngine_evaluateScript);
-                    [batchLogs addObject:@"✅ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功"];
+                    [batchLogs addObject:@"✅ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功 [支持 NSString/NSData 替换]"];
                     successCount++;
                 }
             }
         }
-
+        
         self.totalHookedMethods = successCount;
-
         [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
-
         NSString *summary = [NSString stringWithFormat:@"📊 Hook 启用完成 | 成功: %d | 失败: %d", successCount, failCount];
         [[LogWindowManager sharedInstance] appendLog:summary];
-        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 Hook 已静默启用，参数日志输出已激活"];
+        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 Hook 已启用，NSString/NSData 统一替换已激活"];
     });
 }
 
 - (void)showMessage:(NSString *)title message:(NSString *)message {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-
     UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
-
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
                                                                    message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [topVC presentViewController:alert animated:YES completion:nil];
     });
@@ -1170,136 +1129,105 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
     int count = 0;
     const uint8_t *ptr = (const uint8_t *)data;
     const uint8_t *end = ptr + dataSize;
-
     while (ptr < end - targetLen && count < maxMatches) {
         void *found = memmem(ptr, end - ptr, target, targetLen);
         if (!found) break;
-
         vm_address_t offset = (vm_address_t)((const uint8_t *)found - (const uint8_t *)data);
         vm_address_t absoluteAddr = baseAddr + offset;
         [foundAddresses addObject:[NSNumber numberWithUnsignedLongLong:absoluteAddr]];
         count++;
-
         ptr = (const uint8_t *)found + targetLen;
     }
-
     return count;
 }
 
 - (void)searchWASMMemory {
     [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索..."];
     [[LogWindowManager sharedInstance] showLogWindow];
-
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         NSArray *searchStrings = @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
-
         NSMutableDictionary *results = [NSMutableDictionary dictionary];
         NSMutableDictionary *addresses = [NSMutableDictionary dictionary];
         for (NSString *str in searchStrings) {
             results[str] = @0;
             addresses[str] = [NSMutableArray array];
         }
-
         int checkedRegions = 0;
         int totalRegions = 0;
         int skippedRegions = 0;
         int readFailedRegions = 0;
-
         NSTimeInterval startTime = [[NSDate date] timeIntervalSince1970];
         NSTimeInterval maxDuration = 10.0;
-
         const vm_size_t MAX_REGION_SIZE = 10 * 1024 * 1024;
         const int MAX_MATCHES_PER_STRING = 50;
-
         vm_address_t address = 0;
         vm_size_t size = 0;
         vm_region_basic_info_data_64_t info;
         mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         memory_object_name_t objectName = MACH_PORT_NULL;
-
         while (1) {
             NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
             if (currentTime - startTime > maxDuration) {
                 [[LogWindowManager sharedInstance] appendLog:@"⏱️ 搜索超时（10秒），提前结束"];
                 break;
             }
-
             kern_return_t kr = vm_region_64(mach_task_self(), &address, &size,
                                             VM_REGION_BASIC_INFO_64,
                                             (vm_region_info_t)&info, &infoCount, &objectName);
-
             if (kr != KERN_SUCCESS) break;
             totalRegions++;
-
             BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
-
             if (!isReadable || size < 10) {
                 skippedRegions++;
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
             }
-
             if (size > MAX_REGION_SIZE) {
                 skippedRegions++;
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
             }
-
             checkedRegions++;
-
             if (checkedRegions % 100 == 0) {
                 NSString *log = [NSString stringWithFormat:@"📊 已检查 %d 个区域...", checkedRegions];
                 NSLog(@"[Tweak] %@", log);
                 [[LogWindowManager sharedInstance] appendLog:log];
                 [NSThread sleepForTimeInterval:0.005];
             }
-
             vm_offset_t copiedData = 0;
             mach_msg_type_number_t copiedSize = 0;
             kern_return_t readKr = safe_vm_read(address, size, &copiedData, &copiedSize);
-
             if (readKr != KERN_SUCCESS) {
                 readFailedRegions++;
                 address += size;
                 infoCount = VM_REGION_BASIC_INFO_COUNT_64;
                 continue;
             }
-
             for (NSString *targetStr in searchStrings) {
                 const char *target = [targetStr UTF8String];
                 size_t targetLen = strlen(target);
-
                 if (copiedSize <= targetLen) continue;
-
                 NSMutableArray *foundAddrs = addresses[targetStr];
                 int currentCount = [results[targetStr] intValue];
-
                 if (currentCount >= MAX_MATCHES_PER_STRING) continue;
-
                 int remaining = MAX_MATCHES_PER_STRING - currentCount;
                 int found = searchInCopiedMemory((const void *)copiedData, (size_t)copiedSize, target, targetLen,
                                                    foundAddrs, address, remaining);
-
                 if (found > 0) {
                     results[targetStr] = @(currentCount + found);
                 }
             }
-
             safe_vm_free(copiedData, copiedSize);
-
             address += size;
             infoCount = VM_REGION_BASIC_INFO_COUNT_64;
         }
-
         NSMutableArray *batchLogs = [NSMutableArray array];
         for (NSString *targetStr in searchStrings) {
             int count = [results[targetStr] intValue];
             NSArray *addrs = addresses[targetStr];
-
             [batchLogs addObject:[NSString stringWithFormat:@"📌 '%@' 找到 %d 处", targetStr, count]];
-
             int logCount = MIN((int)addrs.count, 10);
             for (int i = 0; i < logCount; i++) {
                 NSNumber *addr = addrs[i];
@@ -1309,26 +1237,20 @@ static int searchInCopiedMemory(const void *data, size_t dataSize, const char *t
                 [batchLogs addObject:[NSString stringWithFormat:@"   ... 还有 %lu 处", (unsigned long)(addrs.count - 10)]];
             }
         }
-
         if (batchLogs.count > 0) {
             [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
         }
-
         NSMutableString *report = [NSMutableString string];
         [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n读取失败: %d\n",
          totalRegions, checkedRegions, skippedRegions, readFailedRegions];
-
         int totalFound = 0;
         for (NSString *str in searchStrings) {
             int count = [results[str] intValue];
             totalFound += count;
             [report appendFormat:@"%@: %d 处\n", str, count];
         }
-
         [report appendFormat:@"\n总计找到: %d 处", totalFound];
-
         [[LogWindowManager sharedInstance] appendLog:report];
-
         dispatch_async(dispatch_get_main_queue(), ^{
             if (totalFound > 0) {
                 [self showMessage:@"内存搜索成功" message:report];
@@ -1345,21 +1267,18 @@ __attribute__((constructor))
 static void init() {
     @autoreleasepool {
         static BOOL hooksExecuted = NO;
-
         void (^executeOnce)(void) = ^{
             if (hooksExecuted) return;
             hooksExecuted = YES;
             [[FloatingButtonManager sharedInstance] showFloatingButton];
             [[FloatingButtonManager sharedInstance] enableAllHooks];
         };
-
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
                                                           object:nil
                                                            queue:[NSOperationQueue mainQueue]
                                                       usingBlock:^(NSNotification *note) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), executeOnce);
         }];
-
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             executeOnce();
         });

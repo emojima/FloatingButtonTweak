@@ -30,6 +30,7 @@
 @property (nonatomic, assign) BOOL isVisible;
 @property (nonatomic, assign) CGPoint lastTranslation;
 @property (nonatomic, assign) BOOL logEnabled;
+@property (nonatomic, copy) NSString *logFilePath;
 + (instancetype)sharedInstance;
 - (void)toggleLogWindow;
 - (void)showLogWindow;
@@ -37,6 +38,7 @@
 - (void)appendLog:(NSString *)log;
 - (void)appendLogsBatch:(NSArray *)logs;
 - (void)setLogEnabled:(BOOL)enabled;
+- (void)writeLogToFile:(NSString *)log;
 @end
 
 @implementation LogWindowManager
@@ -57,6 +59,11 @@
         _isVisible = NO;
         _lastTranslation = CGPointZero;
         _logEnabled = NO;
+
+        // 初始化日志文件路径
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documentsDir = [paths firstObject];
+        _logFilePath = [documentsDir stringByAppendingPathComponent:@"TweakHookLog.txt"];
     }
     return self;
 }
@@ -229,6 +236,10 @@
         if (self.logTextView) {
             self.logTextView.text = @"";
         }
+    } else {
+        // 开启时记录日志文件路径
+        NSString *log = [NSString stringWithFormat:@"📁 日志文件路径: %@", self.logFilePath];
+        [self writeLogToFile:log];
     }
 }
 
@@ -263,6 +274,27 @@
     }
 }
 
+- (void)writeLogToFile:(NSString *)log {
+    if (!log || log.length == 0) return;
+
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+    NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, log];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:self.logFilePath]) {
+        [formattedLog writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    } else {
+        NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:self.logFilePath];
+        if (fileHandle) {
+            [fileHandle seekToEndOfFile];
+            [fileHandle writeData:[formattedLog dataUsingEncoding:NSUTF8StringEncoding]];
+            [fileHandle closeFile];
+        }
+    }
+}
+
 - (void)appendLog:(NSString *)log {
     if (!self.logEnabled) return;
     if (!log || log.length == 0) return;
@@ -272,6 +304,9 @@
     NSString *timestamp = [formatter stringFromDate:[NSDate date]];
 
     NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, log];
+
+    // 写入文件（完整日志，不截断）
+    [self writeLogToFile:log];
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.logBuffer appendString:formattedLog];
@@ -295,6 +330,8 @@
     NSMutableString *batch = [NSMutableString string];
     for (NSString *log in logs) {
         [batch appendFormat:@"[%@] %@\n", timestamp, log];
+        // 写入文件（完整日志，不截断）
+        [self writeLogToFile:log];
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{

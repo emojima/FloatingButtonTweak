@@ -191,7 +191,7 @@
         self.lastTranslation = translation;
     }
 
-    if (gesture.state == UIGestureRecognizerStateEnded || 
+    if (gesture.state == UIGestureRecognizerStateEnded ||
         gesture.state == UIGestureRecognizerStateCancelled) {
         self.lastTranslation = CGPointZero;
         [gesture setTranslation:CGPointZero inView:self.logContainerView.superview];
@@ -439,37 +439,238 @@
 
 static _Thread_local BOOL g_inHook = NO;
 
-#pragma mark - ========== 图片中的 Hook 实现 ==========
+#pragma mark - ========== 用户指定的 Hook 实现 ==========
 
-// ========== BDPStarkBusinessEngine ==========
-// 方法: -(void)evaluateScript:(id)pageID:(NSInteger)dest:(NSUInteger)completion:(id)
-// Type encoding: v@:@qQ@?
+// ========== 1. BDPWKURLSchemeHandler ==========
+// -(void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask;
 
-static void (*orig_BDPStarkBusinessEngine_evaluateScript)(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion);
-static void hook_BDPStarkBusinessEngine_evaluateScript(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion) {
+static void (*orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask)(id self, SEL _cmd, WKWebView *webView, id urlSchemeTask);
+static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _cmd, WKWebView *webView, id urlSchemeTask) {
     if (g_inHook) {
-        orig_BDPStarkBusinessEngine_evaluateScript(self, _cmd, script, pageID, dest, completion);
+        orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
+        return;
+    }
+    g_inHook = YES;
+
+    NSString *urlStr = @"(nil)";
+    if (urlSchemeTask && [urlSchemeTask respondsToSelector:@selector(request)]) {
+        NSURLRequest *req = [urlSchemeTask request];
+        if (req && req.URL) {
+            urlStr = [req.URL absoluteString];
+        }
+    }
+
+    NSString *log = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
+    g_inHook = NO;
+}
+
+// ========== 2. WKUserContentController ==========
+// -(void)addUserScript:(WKUserScript *)userScript;
+
+static void (*orig_WKUserContentController_addUserScript)(id self, SEL _cmd, WKUserScript *userScript);
+static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUserScript *userScript) {
+    if (g_inHook) {
+        orig_WKUserContentController_addUserScript(self, _cmd, userScript);
+        return;
+    }
+    g_inHook = YES;
+
+    NSString *source = @"(nil)";
+    BOOL hasTarget = NO;
+    if (userScript) {
+        NSString *src = [userScript source];
+        if (src) {
+            source = [[FloatingButtonManager sharedInstance] truncateString:src maxLength:120];
+            hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:src];
+        }
+    }
+
+    NSString *log = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ | source=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     hasTarget ? @"发现目标" : @"",
+                     source];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    orig_WKUserContentController_addUserScript(self, _cmd, userScript);
+    g_inHook = NO;
+}
+
+// ========== 3. BDPLocalFileManager ==========
+// -(NSData *)readFileWithLocalURL:(NSURL *)url error:(id *)error;
+
+static NSData *(*orig_BDPLocalFileManager_readFileWithLocalURL)(id self, SEL _cmd, NSURL *url, id *error);
+static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, NSURL *url, id *error) {
+    if (g_inHook) {
+        return orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
+    }
+    g_inHook = YES;
+
+    NSString *urlStr = url ? [url absoluteString] : @"(nil)";
+
+    NSData *result = orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
+
+    NSString *dataPreview = @"(nil)";
+    if (result) {
+        dataPreview = [[FloatingButtonManager sharedInstance] truncateData:result maxLength:80];
+    }
+
+    NSString *log = [NSString stringWithFormat:@"📋 [BDPLocalFileManager readFileWithLocalURL] url=%@ -> data=%@", urlStr, dataPreview];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    g_inHook = NO;
+    return result;
+}
+
+// -(NSString *)stringWithLocalURL:(NSURL *)url encoding:(unsigned long)encoding error:(id *)error;
+
+static NSString *(*orig_BDPLocalFileManager_stringWithLocalURL)(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error);
+static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error) {
+    if (g_inHook) {
+        return orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
+    }
+    g_inHook = YES;
+
+    NSString *urlStr = url ? [url absoluteString] : @"(nil)";
+
+    NSString *result = orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
+
+    NSString *strPreview = @"(nil)";
+    BOOL hasTarget = NO;
+    if (result) {
+        strPreview = [[FloatingButtonManager sharedInstance] truncateString:result maxLength:120];
+        hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:result];
+    }
+
+    NSString *log = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ | url=%@ -> string=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     (unsigned long)encoding,
+                     hasTarget ? @"发现目标" : @"",
+                     urlStr, strPreview];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    g_inHook = NO;
+    return result;
+}
+
+// ========== 4. BDPWKGamePage ==========
+// -(void)evaluateJavaScript:(NSString *)javaScriptString completionHandler:(void (^)(id, NSError *))completionHandler;
+
+static void (*orig_BDPWKGamePage_evaluateJavaScript)(id self, SEL _cmd, NSString *javaScriptString, id completionHandler);
+static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *javaScriptString, id completionHandler) {
+    if (g_inHook) {
+        orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
+        return;
+    }
+    g_inHook = YES;
+
+    NSString *preview = @"(nil)";
+    BOOL hasTarget = NO;
+    if (javaScriptString) {
+        preview = [[FloatingButtonManager sharedInstance] truncateString:javaScriptString maxLength:120];
+        hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
+    }
+
+    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ | script=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     hasTarget ? @"发现目标" : @"",
+                     preview];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
+    g_inHook = NO;
+}
+
+// -(id)loadRequest:(NSURLRequest *)request;
+
+static id (*orig_BDPWKGamePage_loadRequest)(id self, SEL _cmd, NSURLRequest *request);
+static id hook_BDPWKGamePage_loadRequest(id self, SEL _cmd, NSURLRequest *request) {
+    if (g_inHook) {
+        return orig_BDPWKGamePage_loadRequest(self, _cmd, request);
+    }
+    g_inHook = YES;
+
+    NSString *urlStr = @"(nil)";
+    if (request && request.URL) {
+        urlStr = [request.URL absoluteString];
+    }
+
+    id result = orig_BDPWKGamePage_loadRequest(self, _cmd, request);
+
+    NSString *log = [NSString stringWithFormat:@"📋 [BDPWKGamePage loadRequest] URL=%@ -> return=%@",
+                     urlStr, result ? NSStringFromClass([result class]) : @"(nil)"];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    g_inHook = NO;
+    return result;
+}
+
+// -(id)loadHTMLString:(NSString *)string baseURL:(NSURL *)baseURL;
+
+static id (*orig_BDPWKGamePage_loadHTMLString)(id self, SEL _cmd, NSString *string, NSURL *baseURL);
+static id hook_BDPWKGamePage_loadHTMLString(id self, SEL _cmd, NSString *string, NSURL *baseURL) {
+    if (g_inHook) {
+        return orig_BDPWKGamePage_loadHTMLString(self, _cmd, string, baseURL);
+    }
+    g_inHook = YES;
+
+    NSString *strPreview = @"(nil)";
+    BOOL hasTarget = NO;
+    if (string) {
+        strPreview = [[FloatingButtonManager sharedInstance] truncateString:string maxLength:120];
+        hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:string];
+    }
+    NSString *baseStr = baseURL ? [baseURL absoluteString] : @"(nil)";
+
+    id result = orig_BDPWKGamePage_loadHTMLString(self, _cmd, string, baseURL);
+
+    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage loadHTMLString] baseURL=%@ %@ | string=%@ -> return=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     baseStr,
+                     hasTarget ? @"发现目标" : @"",
+                     strPreview,
+                     result ? NSStringFromClass([result class]) : @"(nil)"];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    g_inHook = NO;
+    return result;
+}
+
+// ========== 5. BDPWKGameBusinessEngine ==========
+// -(void)evaluateScript:(id)pageID:(NSInteger)dest:(NSUInteger)completion:(id);
+
+static void (*orig_BDPWKGameBusinessEngine_evaluateScript)(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion);
+static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion) {
+    if (g_inHook) {
+        orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, script, pageID, dest, completion);
         return;
     }
     g_inHook = YES;
 
     NSString *scriptPreview = @"(nil)";
     BOOL hasTarget = NO;
-
     if (script) {
         if ([script isKindOfClass:[NSString class]]) {
             NSString *str = (NSString *)script;
             scriptPreview = [[FloatingButtonManager sharedInstance] truncateString:str maxLength:120];
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
         } else if ([script isKindOfClass:[NSData class]]) {
-            NSData *data = (NSData *)script;
-            scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:data maxLength:120];
+            scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)script maxLength:80];
         } else {
             scriptPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([script class]), script];
         }
     }
 
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPStarkBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ | script: %@", 
+    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (long)pageID,
                      (unsigned long)dest,
@@ -478,159 +679,156 @@ static void hook_BDPStarkBusinessEngine_evaluateScript(id self, SEL _cmd, id scr
     NSLog(@"[Tweak] %@", log);
     [[LogWindowManager sharedInstance] appendLog:log];
 
-    orig_BDPStarkBusinessEngine_evaluateScript(self, _cmd, script, pageID, dest, completion);
+    orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, script, pageID, dest, completion);
     g_inHook = NO;
-}
-
-// ========== BDPStarkStringUtils (类方法) ==========
-// + (id)dataToHexString:(id)
-// + (id)hexStringToData:(id)
-
-static id (*orig_BDPStarkStringUtils_dataToHexString)(id self, SEL _cmd, id data);
-static id hook_BDPStarkStringUtils_dataToHexString(id self, SEL _cmd, id data) {
-    if (g_inHook) {
-        return orig_BDPStarkStringUtils_dataToHexString(self, _cmd, data);
-    }
-    g_inHook = YES;
-
-    id result = orig_BDPStarkStringUtils_dataToHexString(self, _cmd, data);
-
-    NSString *dataPreview = @"(nil)";
-    if (data) {
-        if ([data isKindOfClass:[NSData class]]) {
-            dataPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)data maxLength:80];
-        } else if ([data isKindOfClass:[NSString class]]) {
-            dataPreview = [[FloatingButtonManager sharedInstance] truncateString:(NSString *)data maxLength:80];
-        } else {
-            dataPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([data class]), data];
-        }
-    }
-
-    NSString *resultPreview = @"(nil)";
-    if (result) {
-        if ([result isKindOfClass:[NSString class]]) {
-            resultPreview = [[FloatingButtonManager sharedInstance] truncateString:(NSString *)result maxLength:80];
-        } else if ([result isKindOfClass:[NSData class]]) {
-            resultPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)result maxLength:80];
-        } else {
-            resultPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([result class]), result];
-        }
-    }
-
-    NSString *log = [NSString stringWithFormat:@"📋 [BDPStarkStringUtils dataToHexString] input: %@ -> output: %@", dataPreview, resultPreview];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
-
-    g_inHook = NO;
-    return result;
-}
-
-static id (*orig_BDPStarkStringUtils_hexStringToData)(id self, SEL _cmd, id string);
-static id hook_BDPStarkStringUtils_hexStringToData(id self, SEL _cmd, id string) {
-    if (g_inHook) {
-        return orig_BDPStarkStringUtils_hexStringToData(self, _cmd, string);
-    }
-    g_inHook = YES;
-
-    id result = orig_BDPStarkStringUtils_hexStringToData(self, _cmd, string);
-
-    NSString *stringPreview = @"(nil)";
-    BOOL hasTarget = NO;
-    if (string) {
-        if ([string isKindOfClass:[NSString class]]) {
-            NSString *str = (NSString *)string;
-            stringPreview = [[FloatingButtonManager sharedInstance] truncateString:str maxLength:80];
-            hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
-        } else if ([string isKindOfClass:[NSData class]]) {
-            stringPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)string maxLength:80];
-        } else {
-            stringPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([string class]), string];
-        }
-    }
-
-    NSString *resultPreview = @"(nil)";
-    if (result) {
-        if ([result isKindOfClass:[NSData class]]) {
-            resultPreview = [[FloatingButtonManager sharedInstance] truncateData:(NSData *)result maxLength:80];
-        } else if ([result isKindOfClass:[NSString class]]) {
-            resultPreview = [[FloatingButtonManager sharedInstance] truncateString:(NSString *)result maxLength:80];
-        } else {
-            resultPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([result class]), result];
-        }
-    }
-
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPStarkStringUtils hexStringToData] %@ | input: %@ -> output: %@", 
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     stringPreview, resultPreview];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
-
-    g_inHook = NO;
-    return result;
 }
 
 #pragma mark - ========== 启用所有 Hook（App 启动时调用）==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用图片中的类方法 Hook..."];
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook..."];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *batchLogs = [NSMutableArray array];
         int successCount = 0;
         int failCount = 0;
 
-        // ========== BDPStarkBusinessEngine (实例方法) ==========
+        // 1. BDPWKURLSchemeHandler - webView:startURLSchemeTask:
         {
-            Class cls = NSClassFromString(@"BDPStarkBusinessEngine");
+            Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
             if (!cls) {
-                [batchLogs addObject:@"❌ BDPStarkBusinessEngine 类未找到"];
+                [batchLogs addObject:@"❌ BDPWKURLSchemeHandler 类未找到"];
                 failCount++;
             } else {
-                SEL sel = NSSelectorFromString(@"evaluateScript:pageID:dest:completion:");
+                SEL sel = NSSelectorFromString(@"webView:startURLSchemeTask:");
                 Method method = class_getInstanceMethod(cls, sel);
                 if (!method) {
-                    [batchLogs addObject:@"⚠️ BDPStarkBusinessEngine evaluateScript:pageID:dest:completion: 方法未找到"];
+                    [batchLogs addObject:@"⚠️ BDPWKURLSchemeHandler webView:startURLSchemeTask: 方法未找到"];
                     failCount++;
                 } else {
-                    orig_BDPStarkBusinessEngine_evaluateScript = (void (*)(id, SEL, id, NSInteger, NSUInteger, id))method_getImplementation(method);
-                    method_setImplementation(method, (IMP)hook_BDPStarkBusinessEngine_evaluateScript);
-                    [batchLogs addObject:@"✅ BDPStarkBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功"];
+                    orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask = (void (*)(id, SEL, WKWebView *, id))method_getImplementation(method);
+                    method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask);
+                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler webView:startURLSchemeTask: Hook 成功"];
                     successCount++;
                 }
             }
         }
 
-        // ========== BDPStarkStringUtils (类方法) ==========
+        // 2. WKUserContentController - addUserScript:
         {
-            Class cls = NSClassFromString(@"BDPStarkStringUtils");
+            Class cls = NSClassFromString(@"WKUserContentController");
             if (!cls) {
-                [batchLogs addObject:@"❌ BDPStarkStringUtils 类未找到"];
-                failCount += 2;
+                [batchLogs addObject:@"❌ WKUserContentController 类未找到"];
+                failCount++;
             } else {
-                // dataToHexString:
-                SEL sel1 = NSSelectorFromString(@"dataToHexString:");
-                Method method1 = class_getClassMethod(cls, sel1);
-                if (!method1) {
-                    [batchLogs addObject:@"⚠️ BDPStarkStringUtils dataToHexString: 类方法未找到"];
+                SEL sel = NSSelectorFromString(@"addUserScript:");
+                Method method = class_getInstanceMethod(cls, sel);
+                if (!method) {
+                    [batchLogs addObject:@"⚠️ WKUserContentController addUserScript: 方法未找到"];
                     failCount++;
                 } else {
-                    orig_BDPStarkStringUtils_dataToHexString = (id (*)(id, SEL, id))method_getImplementation(method1);
-                    method_setImplementation(method1, (IMP)hook_BDPStarkStringUtils_dataToHexString);
-                    [batchLogs addObject:@"✅ BDPStarkStringUtils dataToHexString: Hook 成功"];
+                    orig_WKUserContentController_addUserScript = (void (*)(id, SEL, WKUserScript *))method_getImplementation(method);
+                    method_setImplementation(method, (IMP)hook_WKUserContentController_addUserScript);
+                    [batchLogs addObject:@"✅ WKUserContentController addUserScript: Hook 成功"];
+                    successCount++;
+                }
+            }
+        }
+
+        // 3. BDPLocalFileManager - readFileWithLocalURL:error:
+        {
+            Class cls = NSClassFromString(@"BDPLocalFileManager");
+            if (!cls) {
+                [batchLogs addObject:@"❌ BDPLocalFileManager 类未找到"];
+                failCount += 2;
+            } else {
+                SEL sel1 = NSSelectorFromString(@"readFileWithLocalURL:error:");
+                Method method1 = class_getInstanceMethod(cls, sel1);
+                if (!method1) {
+                    [batchLogs addObject:@"⚠️ BDPLocalFileManager readFileWithLocalURL:error: 方法未找到"];
+                    failCount++;
+                } else {
+                    orig_BDPLocalFileManager_readFileWithLocalURL = (NSData *(*)(id, SEL, NSURL *, id *))method_getImplementation(method1);
+                    method_setImplementation(method1, (IMP)hook_BDPLocalFileManager_readFileWithLocalURL);
+                    [batchLogs addObject:@"✅ BDPLocalFileManager readFileWithLocalURL:error: Hook 成功"];
                     successCount++;
                 }
 
-                // hexStringToData:
-                SEL sel2 = NSSelectorFromString(@"hexStringToData:");
-                Method method2 = class_getClassMethod(cls, sel2);
+                SEL sel2 = NSSelectorFromString(@"stringWithLocalURL:encoding:error:");
+                Method method2 = class_getInstanceMethod(cls, sel2);
                 if (!method2) {
-                    [batchLogs addObject:@"⚠️ BDPStarkStringUtils hexStringToData: 类方法未找到"];
+                    [batchLogs addObject:@"⚠️ BDPLocalFileManager stringWithLocalURL:encoding:error: 方法未找到"];
                     failCount++;
                 } else {
-                    orig_BDPStarkStringUtils_hexStringToData = (id (*)(id, SEL, id))method_getImplementation(method2);
-                    method_setImplementation(method2, (IMP)hook_BDPStarkStringUtils_hexStringToData);
-                    [batchLogs addObject:@"✅ BDPStarkStringUtils hexStringToData: Hook 成功"];
+                    orig_BDPLocalFileManager_stringWithLocalURL = (NSString *(*)(id, SEL, NSURL *, unsigned long, id *))method_getImplementation(method2);
+                    method_setImplementation(method2, (IMP)hook_BDPLocalFileManager_stringWithLocalURL);
+                    [batchLogs addObject:@"✅ BDPLocalFileManager stringWithLocalURL:encoding:error: Hook 成功"];
+                    successCount++;
+                }
+            }
+        }
+
+        // 4. BDPWKGamePage
+        {
+            Class cls = NSClassFromString(@"BDPWKGamePage");
+            if (!cls) {
+                [batchLogs addObject:@"❌ BDPWKGamePage 类未找到"];
+                failCount += 3;
+            } else {
+                SEL sel1 = NSSelectorFromString(@"evaluateJavaScript:completionHandler:");
+                Method method1 = class_getInstanceMethod(cls, sel1);
+                if (!method1) {
+                    [batchLogs addObject:@"⚠️ BDPWKGamePage evaluateJavaScript:completionHandler: 方法未找到"];
+                    failCount++;
+                } else {
+                    orig_BDPWKGamePage_evaluateJavaScript = (void (*)(id, SEL, NSString *, id))method_getImplementation(method1);
+                    method_setImplementation(method1, (IMP)hook_BDPWKGamePage_evaluateJavaScript);
+                    [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功"];
+                    successCount++;
+                }
+
+                SEL sel2 = NSSelectorFromString(@"loadRequest:");
+                Method method2 = class_getInstanceMethod(cls, sel2);
+                if (!method2) {
+                    [batchLogs addObject:@"⚠️ BDPWKGamePage loadRequest: 方法未找到"];
+                    failCount++;
+                } else {
+                    orig_BDPWKGamePage_loadRequest = (id (*)(id, SEL, NSURLRequest *))method_getImplementation(method2);
+                    method_setImplementation(method2, (IMP)hook_BDPWKGamePage_loadRequest);
+                    [batchLogs addObject:@"✅ BDPWKGamePage loadRequest: Hook 成功"];
+                    successCount++;
+                }
+
+                SEL sel3 = NSSelectorFromString(@"loadHTMLString:baseURL:");
+                Method method3 = class_getInstanceMethod(cls, sel3);
+                if (!method3) {
+                    [batchLogs addObject:@"⚠️ BDPWKGamePage loadHTMLString:baseURL: 方法未找到"];
+                    failCount++;
+                } else {
+                    orig_BDPWKGamePage_loadHTMLString = (id (*)(id, SEL, NSString *, NSURL *))method_getImplementation(method3);
+                    method_setImplementation(method3, (IMP)hook_BDPWKGamePage_loadHTMLString);
+                    [batchLogs addObject:@"✅ BDPWKGamePage loadHTMLString:baseURL: Hook 成功"];
+                    successCount++;
+                }
+            }
+        }
+
+        // 5. BDPWKGameBusinessEngine - evaluateScript:pageID:dest:completion:
+        {
+            Class cls = NSClassFromString(@"BDPWKGameBusinessEngine");
+            if (!cls) {
+                [batchLogs addObject:@"❌ BDPWKGameBusinessEngine 类未找到"];
+                failCount++;
+            } else {
+                SEL sel = NSSelectorFromString(@"evaluateScript:pageID:dest:completion:");
+                Method method = class_getInstanceMethod(cls, sel);
+                if (!method) {
+                    [batchLogs addObject:@"⚠️ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: 方法未找到"];
+                    failCount++;
+                } else {
+                    orig_BDPWKGameBusinessEngine_evaluateScript = (void (*)(id, SEL, id, NSInteger, NSUInteger, id))method_getImplementation(method);
+                    method_setImplementation(method, (IMP)hook_BDPWKGameBusinessEngine_evaluateScript);
+                    [batchLogs addObject:@"✅ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功"];
                     successCount++;
                 }
             }

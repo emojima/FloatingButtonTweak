@@ -13,6 +13,7 @@
 @property (nonatomic, weak) UIWindow *lastWindow;
 @property (nonatomic, assign) int totalReplacedCount;
 @property (nonatomic, assign) int totalHookedMethods;
+@property (nonatomic, strong) UIAlertController *currentMenuAlert;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -22,6 +23,8 @@
 @property (nonatomic, strong) UIView *logContainerView;
 @property (nonatomic, strong) UITextView *logTextView;
 @property (nonatomic, strong) UIButton *closeButton;
+@property (nonatomic, strong) UIButton *copyButton;
+@property (nonatomic, strong) UIButton *clearButton;
 @property (nonatomic, strong) UIView *titleBar;
 @property (nonatomic, strong) NSMutableString *logBuffer;
 @property (nonatomic, assign) BOOL isVisible;
@@ -125,12 +128,29 @@
     UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleTitleBarPan:)];
     [self.titleBar addGestureRecognizer:panGesture];
 
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, windowWidth - 80, 36)];
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, windowWidth - 200, 36)];
     titleLabel.text = @"📋 Tweak 日志（拖动标题栏移动）";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:13];
     [self.titleBar addSubview:titleLabel];
 
+    // 复制按钮
+    self.copyButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.copyButton.frame = CGRectMake(windowWidth - 140, 4, 40, 28);
+    [self.copyButton setTitle:@"📋" forState:UIControlStateNormal];
+    self.copyButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.copyButton addTarget:self action:@selector(copyLogContent) forControlEvents:UIControlEventTouchUpInside];
+    [self.titleBar addSubview:self.copyButton];
+
+    // 清空按钮
+    self.clearButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.clearButton.frame = CGRectMake(windowWidth - 95, 4, 40, 28);
+    [self.clearButton setTitle:@"🗑️" forState:UIControlStateNormal];
+    self.clearButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.clearButton addTarget:self action:@selector(clearLogContent) forControlEvents:UIControlEventTouchUpInside];
+    [self.titleBar addSubview:self.clearButton];
+
+    // 关闭按钮
     self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.closeButton.frame = CGRectMake(windowWidth - 50, 4, 40, 28);
     [self.closeButton setTitle:@"✕" forState:UIControlStateNormal];
@@ -165,6 +185,30 @@
 - (void)hideLogWindow {
     self.logContainerView.hidden = YES;
     self.isVisible = NO;
+}
+
+- (void)copyLogContent {
+    if (self.logBuffer && self.logBuffer.length > 0) {
+        UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
+        pasteboard.string = self.logBuffer;
+        NSString *log = @"📋 日志内容已复制到剪贴板";
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    } else {
+        NSString *log = @"⚠️ 日志内容为空，无法复制";
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+    }
+}
+
+- (void)clearLogContent {
+    [self.logBuffer setString:@""];
+    if (self.logTextView) {
+        self.logTextView.text = @"";
+    }
+    NSString *log = @"🗑️ 日志内容已清空";
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
 }
 
 - (void)handleTitleBarPan:(UIPanGestureRecognizer *)gesture {
@@ -259,6 +303,7 @@
     if (self) {
         _totalReplacedCount = 0;
         _totalHookedMethods = 0;
+        _currentMenuAlert = nil;
     }
     return self;
 }
@@ -368,6 +413,14 @@
 }
 
 - (void)buttonTapped:(UIButton *)sender {
+    // 如果功能菜单已经显示，则关闭它
+    if (self.currentMenuAlert) {
+        [self.currentMenuAlert dismissViewControllerAnimated:YES completion:^{
+            self.currentMenuAlert = nil;
+        }];
+        return;
+    }
+
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
 
@@ -381,18 +434,25 @@
     NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
 
     [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        self.currentMenuAlert = nil;
         [self searchWASMMemory];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"日志窗口%@", logStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        self.currentMenuAlert = nil;
         [[LogWindowManager sharedInstance] toggleLogWindow];
     }]];
 
     [alert addAction:[UIAlertAction actionWithTitle:@"关闭悬浮窗" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        self.currentMenuAlert = nil;
         [self hideFloatingButton];
     }]];
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        self.currentMenuAlert = nil;
+    }]];
+
+    self.currentMenuAlert = alert;
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [topVC presentViewController:alert animated:YES completion:nil];
@@ -435,6 +495,37 @@
     return [NSString stringWithFormat:@"%@...(%lu bytes)", [hexStr substringToIndex:maxLength], (unsigned long)data.length];
 }
 
+- (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength {
+    if (!obj) return @"(nil)";
+    if ([obj isKindOfClass:[NSString class]]) {
+        return [self truncateString:(NSString *)obj maxLength:maxLength];
+    }
+    if ([obj isKindOfClass:[NSData class]]) {
+        return [self truncateData:(NSData *)obj maxLength:maxLength];
+    }
+    if ([obj isKindOfClass:[NSURL class]]) {
+        return [(NSURL *)obj absoluteString] ?: @"(nil URL)";
+    }
+    if ([obj isKindOfClass:[NSError class]]) {
+        NSError *err = (NSError *)obj;
+        return [NSString stringWithFormat:@"[NSError domain:%@ code:%ld %@]", err.domain, (long)err.code, err.localizedDescription];
+    }
+    if ([obj isKindOfClass:[NSNumber class]]) {
+        return [(NSNumber *)obj stringValue];
+    }
+    if ([obj isKindOfClass:[NSArray class]]) {
+        return [NSString stringWithFormat:@"[NSArray count:%lu]", (unsigned long)[(NSArray *)obj count]];
+    }
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        return [NSString stringWithFormat:@"[NSDictionary count:%lu]", (unsigned long)[(NSDictionary *)obj count]];
+    }
+    NSString *desc = [obj description];
+    if (desc.length > maxLength) {
+        return [NSString stringWithFormat:@"(%@)%@...(%lu)", NSStringFromClass([obj class]), [desc substringToIndex:maxLength], (unsigned long)(desc.length - maxLength)];
+    }
+    return [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([obj class]), desc];
+}
+
 #pragma mark - ========== 递归保护 ==========
 
 static _Thread_local BOOL g_inHook = NO;
@@ -465,6 +556,30 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     [[LogWindowManager sharedInstance] appendLog:log];
 
     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
+    g_inHook = NO;
+}
+
+// -(void)handleResponseWithTask:(id)task data:(id)data ofURLInfo:(id)urlInfo withError:(id)error;
+
+static void (*orig_BDPWKURLSchemeHandler_handleResponseWithTask)(id self, SEL _cmd, id task, id data, id urlInfo, id error);
+static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd, id task, id data, id urlInfo, id error) {
+    if (g_inHook) {
+        orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, data, urlInfo, error);
+        return;
+    }
+    g_inHook = YES;
+
+    NSString *taskDesc = [[FloatingButtonManager sharedInstance] objectDescription:task maxLength:80];
+    NSString *dataDesc = [[FloatingButtonManager sharedInstance] objectDescription:data maxLength:120];
+    NSString *urlInfoDesc = [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:120];
+    NSString *errorDesc = [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:80];
+
+    NSString *log = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+                     taskDesc, dataDesc, urlInfoDesc, errorDesc];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+
+    orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, data, urlInfo, error);
     g_inHook = NO;
 }
 
@@ -714,7 +829,28 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             }
         }
 
-        // 2. WKUserContentController - addUserScript:
+        // 2. BDPWKURLSchemeHandler - handleResponseWithTask:data:ofURLInfo:withError:
+        {
+            Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
+            if (!cls) {
+                [batchLogs addObject:@"❌ BDPWKURLSchemeHandler 类未找到 (handleResponseWithTask)"];
+                failCount++;
+            } else {
+                SEL sel = NSSelectorFromString(@"handleResponseWithTask:data:ofURLInfo:withError:");
+                Method method = class_getInstanceMethod(cls, sel);
+                if (!method) {
+                    [batchLogs addObject:@"⚠️ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: 方法未找到"];
+                    failCount++;
+                } else {
+                    orig_BDPWKURLSchemeHandler_handleResponseWithTask = (void (*)(id, SEL, id, id, id, id))method_getImplementation(method);
+                    method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_handleResponseWithTask);
+                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: Hook 成功"];
+                    successCount++;
+                }
+            }
+        }
+
+        // 3. WKUserContentController - addUserScript:
         {
             Class cls = NSClassFromString(@"WKUserContentController");
             if (!cls) {
@@ -735,7 +871,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             }
         }
 
-        // 3. BDPLocalFileManager - readFileWithLocalURL:error:
+        // 4. BDPLocalFileManager
         {
             Class cls = NSClassFromString(@"BDPLocalFileManager");
             if (!cls) {
@@ -768,7 +904,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             }
         }
 
-        // 4. BDPWKGamePage
+        // 5. BDPWKGamePage
         {
             Class cls = NSClassFromString(@"BDPWKGamePage");
             if (!cls) {
@@ -813,7 +949,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             }
         }
 
-        // 5. BDPWKGameBusinessEngine - evaluateScript:pageID:dest:completion:
+        // 6. BDPWKGameBusinessEngine - evaluateScript:pageID:dest:completion:
         {
             Class cls = NSClassFromString(@"BDPWKGameBusinessEngine");
             if (!cls) {

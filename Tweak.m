@@ -295,6 +295,32 @@
     }
 }
 
+// 同时写入完整日志到文件和截断日志到窗口
+- (void)appendLogFull:(NSString *)fullLog displayLog:(NSString *)displayLog {
+    if (!self.logEnabled) return;
+    if (!fullLog || fullLog.length == 0) return;
+
+    // 写入文件（完整日志，不截断）
+    [self writeLogToFile:fullLog];
+
+    // 显示到窗口（使用 displayLog，如果为 nil 则使用 fullLog）
+    NSString *showLog = displayLog ?: fullLog;
+
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"HH:mm:ss"];
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+    NSString *formattedLog = [NSString stringWithFormat:@"[%@] %@\n", timestamp, showLog];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.logBuffer appendString:formattedLog];
+        if (self.logTextView) {
+            self.logTextView.text = self.logBuffer;
+            NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
+            [self.logTextView scrollRangeToVisible:bottom];
+        }
+    });
+}
+
 - (void)appendLog:(NSString *)log {
     if (!self.logEnabled) return;
     if (!log || log.length == 0) return;
@@ -332,6 +358,38 @@
         [batch appendFormat:@"[%@] %@\n", timestamp, log];
         // 写入文件（完整日志，不截断）
         [self writeLogToFile:log];
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.logBuffer appendString:batch];
+
+        if (self.logTextView) {
+            self.logTextView.text = self.logBuffer;
+            NSRange bottom = NSMakeRange(self.logTextView.text.length, 0);
+            [self.logTextView scrollRangeToVisible:bottom];
+        }
+    });
+}
+
+// 批量写入完整日志到文件，显示截断版本到窗口
+- (void)appendLogsBatchFull:(NSArray *)fullLogs displayLogs:(NSArray *)displayLogs {
+    if (!self.logEnabled) return;
+    if (!fullLogs || fullLogs.count == 0) return;
+
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"HH:mm:ss"];
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+
+    NSMutableString *batch = [NSMutableString string];
+    for (int i = 0; i < fullLogs.count; i++) {
+        NSString *fullLog = fullLogs[i];
+        NSString *displayLog = (i < displayLogs.count) ? displayLogs[i] : fullLog;
+
+        // 写入文件（完整日志）
+        [self writeLogToFile:fullLog];
+
+        // 添加到窗口缓冲区
+        [batch appendFormat:@"[%@] %@\n", timestamp, displayLog];
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -637,9 +695,11 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         }
     }
 
-    NSString *log = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
+    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
+                           [[FloatingButtonManager sharedInstance] truncateString:urlStr maxLength:120]];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
     g_inHook = NO;
@@ -660,10 +720,15 @@ static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd,
     NSString *urlInfoDesc = [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:120];
     NSString *errorDesc = [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:80];
 
-    NSString *log = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+    NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
+                     [[FloatingButtonManager sharedInstance] objectDescription:task maxLength:1000], 
+                     [[FloatingButtonManager sharedInstance] objectDescription:data maxLength:2000], 
+                     [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:2000], 
+                     [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:1000]];
+    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
                      taskDesc, dataDesc, urlInfoDesc, errorDesc];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, data, urlInfo, error);
     g_inHook = NO;
@@ -690,12 +755,21 @@ static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUser
         }
     }
 
-    NSString *log = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ | source=%@",
+    NSString *srcFull = @"(nil)";
+    if (userScript) {
+        NSString *src = [userScript source];
+        if (src) srcFull = src;
+    }
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ | source=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     hasTarget ? @"发现目标" : @"",
+                     srcFull];
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ | source=%@",
                      hasTarget ? @"🎯" : @"📋",
                      hasTarget ? @"发现目标" : @"",
                      source];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     orig_WKUserContentController_addUserScript(self, _cmd, userScript);
     g_inHook = NO;
@@ -720,9 +794,14 @@ static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, 
         dataPreview = [[FloatingButtonManager sharedInstance] truncateData:result maxLength:80];
     }
 
-    NSString *log = [NSString stringWithFormat:@"📋 [BDPLocalFileManager readFileWithLocalURL] url=%@ -> data=%@", urlStr, dataPreview];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSString *dataFull = @"(nil)";
+    if (result) {
+        dataFull = [result description];
+    }
+    NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPLocalFileManager readFileWithLocalURL] url=%@ -> data=%@", urlStr, dataFull];
+    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPLocalFileManager readFileWithLocalURL] url=%@ -> data=%@", urlStr, dataPreview];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     g_inHook = NO;
     return result;
@@ -748,13 +827,22 @@ static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, 
         hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:result];
     }
 
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ | url=%@ -> string=%@",
+    NSString *strFull = @"(nil)";
+    if (result) {
+        strFull = result;
+    }
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ | url=%@ -> string=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     (unsigned long)encoding,
+                     hasTarget ? @"发现目标" : @"",
+                     urlStr, strFull];
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ | url=%@ -> string=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (unsigned long)encoding,
                      hasTarget ? @"发现目标" : @"",
                      urlStr, strPreview];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     g_inHook = NO;
     return result;
@@ -780,13 +868,19 @@ static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *j
         preview = [[FloatingButtonManager sharedInstance] truncateString:javaScriptString maxLength:120];
     }
 
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
+    NSString *scriptFull = javaScriptString ?: @"(nil)";
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
+                     scriptFull];
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
                      hasTarget ? @"发现目标" : @"",
                      didReplace ? @"[已替换]" : @"",
                      preview];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, modified, completionHandler);
     g_inHook = NO;
@@ -823,15 +917,32 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         }
     }
 
-    NSString *log = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
+    NSString *scriptFull = @"(nil)";
+    if (script) {
+        if ([script isKindOfClass:[NSString class]]) {
+            scriptFull = (NSString *)script;
+        } else if ([script isKindOfClass:[NSData class]]) {
+            scriptFull = [(NSData *)script description];
+        } else {
+            scriptFull = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([script class]), script];
+        }
+    }
+    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
+                     hasTarget ? @"🎯" : @"📋",
+                     (long)pageID,
+                     (unsigned long)dest,
+                     hasTarget ? @"发现目标" : @"",
+                     didReplace ? @"[已替换]" : @"",
+                     scriptFull];
+    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
                      hasTarget ? @"🎯" : @"📋",
                      (long)pageID,
                      (unsigned long)dest,
                      hasTarget ? @"发现目标" : @"",
                      didReplace ? @"[已替换]" : @"",
                      scriptPreview];
-    NSLog(@"[Tweak] %@", log);
-    [[LogWindowManager sharedInstance] appendLog:log];
+    NSLog(@"[Tweak] %@", fullLog);
+    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
     orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, modifiedScript, pageID, dest, completion);
     g_inHook = NO;

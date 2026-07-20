@@ -24,6 +24,7 @@
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
+- (UIWindow *)topmostWindow;
 @end
 
 @interface LogWindowManager : NSObject

@@ -852,7 +852,7 @@
 }
 
 - (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tt.setClipboardData({data:'test-hello',success:function(e){},fail:function(e){}})";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {

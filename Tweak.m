@@ -957,7 +957,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         IMP newDidReceiveResponse = imp_implementationWithBlock(^(id taskSelf, NSURLResponse *response) {
             NSString *contentType = @"(unknown)";
             
-            // 优先从 HTTP 响应头提取，其次兜底使用 MIMEType
             if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
                 NSDictionary *headers = [(NSHTTPURLResponse *)response allHeaderFields];
                 contentType = headers[@"Content-Type"] ?: headers[@"content-type"] ?: @"(none)";
@@ -965,7 +964,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 contentType = response.MIMEType;
             }
             
-            // 使用 Associated Object 将 Content-Type 动态绑定到 taskSelf 实例上
             objc_setAssociatedObject(taskSelf, kTaskContentTypeKey, contentType, OBJC_ASSOCIATION_COPY_NONATOMIC);
             
             typedef void (*orig_resp_fn_t)(id, SEL, NSURLResponse *);
@@ -982,7 +980,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         IMP origDidReceiveData = method_getImplementation(didReceiveDataMethod);
         
         IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
-            // 安全从 taskSelf 現場获取 request 真实的 URL
             NSString *taskUrl = @"(unknown)";
             if ([taskSelf respondsToSelector:@selector(request)]) {
                 NSURLRequest *req = [taskSelf request];
@@ -991,10 +988,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 }
             }
             
-            // 【核心改动】取出之前在 didReceiveResponse: 中绑定的 Content-Type
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
             
-            // 执行原本的业务逻辑与目标替换
             NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
             BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
@@ -1002,8 +997,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
             NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
             NSString *dataFull = data ? [data description] : @"(nil)";
             
-            // 日志加入 [Type=xxx] 的格式化输出
-            NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%%@ %@ %@ | data=%@",
+            // 【完全修复点】此处格式化字符串与后面的 7 个实参严格一一对应
+            NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ %@ | data=%@",
                              hasTarget ? @"🎯" : @"📋",
                              contentType,
                              taskUrl,
@@ -1059,7 +1054,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         method_setImplementation(didFailMethod, newDidFail);
     }
 }
-
 
 #pragma mark - ========== 用户指定的 Hook 实现 ==========
 

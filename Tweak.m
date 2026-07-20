@@ -200,12 +200,30 @@
 
     self.logContainerView.hidden = NO;
     self.isVisible = YES;
+    // 显示日志窗口后自动关闭功能面板
+    [[FloatingButtonManager sharedInstance] dismissMenuPanel];
 }
 
 - (void)hideLogWindow {
     self.logContainerView.hidden = YES;
     self.isVisible = NO;
     [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:@"当前：已隐藏"];
+    // 同步更新功能面板中开关按钮的 UI 状态
+    UIWindow *keyWindow = [[FloatingButtonManager sharedInstance] topmostWindow];
+    if (keyWindow) {
+        UIView *panel = [keyWindow viewWithTag:99998];
+        if (panel) {
+            UIView *row = [panel viewWithTag:1001];
+            if (row) {
+                for (UIView *sub in row.subviews) {
+                    if ([sub isKindOfClass:[UISwitch class]]) {
+                        ((UISwitch *)sub).on = NO;
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 - (void)copyLogContent {

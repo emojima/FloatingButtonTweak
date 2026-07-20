@@ -921,7 +921,7 @@
 }
 
 - (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('tweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLog')";
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='tweak://log?msg=hellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohello'";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {

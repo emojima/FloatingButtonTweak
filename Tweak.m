@@ -11,7 +11,7 @@
 @property (nonatomic, assign) int totalReplacedCount;
 @property (nonatomic, assign) int totalHookedMethods;
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
-@property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture; // 全局双指唤醒监听
+@property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -53,6 +53,7 @@
 - (NSString *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength;
 - (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength;
 @end
+
 @implementation LogWindowManager
 
 + (instancetype)sharedInstance {
@@ -109,9 +110,9 @@
     } else {
         [self showLogWindow];
     }
-    // 触发联动更新功能面板的 UI 状态显示
     [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:self.isVisible ? @"当前：显示中" : @"当前：已隐藏"];
 }
+
 - (void)showLogWindow {
     if (self.logContainerView) {
         self.logContainerView.hidden = NO;
@@ -206,6 +207,7 @@
     self.isVisible = NO;
     [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:@"当前：已隐藏"];
 }
+
 - (void)copyLogContent {
     if (self.logBuffer && self.logBuffer.length > 0) {
         UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
@@ -361,6 +363,7 @@
         }
     });
 }
+
 - (NSString *)truncateString:(NSString *)string maxLength:(NSInteger)maxLength {
     if (!string || string.length == 0) return @"(nil)";
     if (string.length <= maxLength) return string;
@@ -369,7 +372,6 @@
 
 - (NSData *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
     if (!data || data.length == 0) return data;
-    // 如果需要对二进制 Data 做长度截断逻辑
     if (data.length <= maxLength) return data;
     return [data subdataWithRange:NSMakeRange(0, maxLength)];
 }
@@ -492,6 +494,7 @@
     [keyWindow bringSubviewToFront:self.floatingButton];
     [self startKeepOnTopTimer];
 }
+
 - (void)startKeepOnTopTimer {
     [self.keepOnTopTimer invalidate];
     self.keepOnTopTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
@@ -746,6 +749,7 @@
     line.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
     [row addSubview:line];
 }
+
 - (void)switchValueChanged:(UISwitch *)sender {
     switch (sender.tag) {
         case 1001: {
@@ -811,7 +815,7 @@
     if (!keyWindow) return;
     UIView *overlay = [keyWindow viewWithTag:99999];
     UIView *panel = [keyWindow viewWithTag:99998];
-    
+
     [UIView animateWithDuration:0.2 animations:^{
         overlay.alpha = 0;
         panel.alpha = 0;
@@ -871,7 +875,7 @@
         str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
     }
     if (!str || str.length < 20) return data;
-    
+
     NSString *modified = [self replaceTargetInString:str];
     if (![modified isEqualToString:str]) {
         NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
@@ -923,23 +927,22 @@
 #pragma mark - ========== 递归保护 ==========
 
 static _Thread_local BOOL g_inHook = NO;
+
 #pragma mark - ========== 动态拦截 WKURLSchemeTask 响应数据 ==========
 
-
-// 定义关联对象的唯一 Key，用于跨方法传递 Content-Type
 static const char *kTaskContentTypeKey = "kTaskContentTypeKey";
 
 static void hookURLSchemeTask(id urlSchemeTask) {
     if (!urlSchemeTask) return;
-    
+
     Class taskClass = [urlSchemeTask class];
-    
+
     static NSMutableSet *hookedClasses = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         hookedClasses = [NSMutableSet set];
     });
-    
+
     @synchronized (hookedClasses) {
         NSString *clsName = NSStringFromClass(taskClass);
         if ([hookedClasses containsObject:clsName]) {
@@ -947,38 +950,38 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         }
         [hookedClasses addObject:clsName];
     }
-    
-    // ================== 1. Hook didReceiveResponse: 捕获 Content-Type ==================
+
+    // 1. Hook didReceiveResponse: 捕获 Content-Type
     SEL didReceiveResponseSel = NSSelectorFromString(@"didReceiveResponse:");
     Method didReceiveResponseMethod = class_getInstanceMethod(taskClass, didReceiveResponseSel);
     if (didReceiveResponseMethod) {
         IMP origDidReceiveResponse = method_getImplementation(didReceiveResponseMethod);
-        
+
         IMP newDidReceiveResponse = imp_implementationWithBlock(^(id taskSelf, NSURLResponse *response) {
             NSString *contentType = @"(unknown)";
-            
+
             if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
                 NSDictionary *headers = [(NSHTTPURLResponse *)response allHeaderFields];
                 contentType = headers[@"Content-Type"] ?: headers[@"content-type"] ?: @"(none)";
             } else if (response.MIMEType) {
                 contentType = response.MIMEType;
             }
-            
+
             objc_setAssociatedObject(taskSelf, kTaskContentTypeKey, contentType, OBJC_ASSOCIATION_COPY_NONATOMIC);
-            
+
             typedef void (*orig_resp_fn_t)(id, SEL, NSURLResponse *);
             ((orig_resp_fn_t)origDidReceiveResponse)(taskSelf, didReceiveResponseSel, response);
         });
-        
+
         method_setImplementation(didReceiveResponseMethod, newDidReceiveResponse);
     }
-    
-    // ================== 2. Hook didReceiveData: 处理并记录日志（带 Content-Type） ==================
+
+    // 2. Hook didReceiveData: 处理并记录日志
     SEL didReceiveDataSel = NSSelectorFromString(@"didReceiveData:");
     Method didReceiveDataMethod = class_getInstanceMethod(taskClass, didReceiveDataSel);
     if (didReceiveDataMethod) {
         IMP origDidReceiveData = method_getImplementation(didReceiveDataMethod);
-        
+
         IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
             NSString *taskUrl = @"(unknown)";
             if ([taskSelf respondsToSelector:@selector(request)]) {
@@ -987,17 +990,16 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                     taskUrl = [req.URL absoluteString];
                 }
             }
-            
+
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
-            
+
             NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
             BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
-            
+
             NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
             NSString *dataFull = data ? [data description] : @"(nil)";
-            
-            // 【完全修复点】此处格式化字符串与后面的 7 个实参严格一一对应
+
             NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ %@ | data=%@",
                              hasTarget ? @"🎯" : @"📋",
                              contentType,
@@ -1005,7 +1007,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                              hasTarget ? @"发现目标" : @"",
                              didReplace ? @"[已替换]" : @"",
                              dataFull];
-                             
+
             NSString *displayLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ %@ | data=%@",
                              hasTarget ? @"🎯" : @"📋",
                              contentType,
@@ -1013,25 +1015,25 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                              hasTarget ? @"发现目标" : @"",
                              didReplace ? @"[已替换]" : @"",
                              dataPreview];
-                             
+
             NSLog(@"[Tweak] %@", fullLog);
             [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-            
+
             if (data && data.length > 0) {
                 NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
                 NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE][Type=%@] URL=%@ | LENGTH=%lu | CONTENT=%@",
                                        contentType, taskUrl, (unsigned long)data.length, dataStr ?: @"(binary data)"];
                 [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
             }
-            
+
             typedef void (*orig_data_fn_t)(id, SEL, NSData *);
             ((orig_data_fn_t)origDidReceiveData)(taskSelf, didReceiveDataSel, modifiedData);
         });
-        
+
         method_setImplementation(didReceiveDataMethod, newDidReceiveData);
     }
-    
-    // ================== 3. 底层其余配套方法保持原样 ==================
+
+    // 3. Hook didFinish
     SEL didFinishSel = NSSelectorFromString(@"didFinish");
     Method didFinishMethod = class_getInstanceMethod(taskClass, didFinishSel);
     if (didFinishMethod) {
@@ -1042,7 +1044,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         });
         method_setImplementation(didFinishMethod, newDidFinish);
     }
-    
+
+    // 4. Hook didFailWithError:
     SEL didFailSel = NSSelectorFromString(@"didFailWithError:");
     Method didFailMethod = class_getInstanceMethod(taskClass, didFailSel);
     if (didFailMethod) {
@@ -1055,9 +1058,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
     }
 }
 
-#pragma mark - ========== 用户指定的 Hook 实现 ==========
-
-// ========== 1. BDPWKURLSchemeHandler ==========
+#pragma mark - ========== 保留的 Hook: BDPWKURLSchemeHandler ==========
 
 static void (*orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask)(id self, SEL _cmd, WKWebView *webView, id urlSchemeTask);
 static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _cmd, WKWebView *webView, id urlSchemeTask) {
@@ -1075,7 +1076,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         }
     }
 
-    // 触发子任务中内部协议方法的底层拦截绑定
     hookURLSchemeTask(urlSchemeTask);
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
@@ -1083,7 +1083,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
                            [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    
+
     NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
     [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
 
@@ -1091,249 +1091,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     g_inHook = NO;
 }
 
-static void (*orig_BDPWKURLSchemeHandler_handleResponseWithTask)(id self, SEL _cmd, id task, id data, id urlInfo, id error);
-static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd, id task, id data, id urlInfo, id error) {
-    if (g_inHook) {
-        orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, data, urlInfo, error);
-        return;
-    }
-    g_inHook = YES;
-    
-    id modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInObject:data];
-    BOOL didReplaceData = (modifiedData != data && ![modifiedData isEqual:data]);
-    BOOL hasTargetInData = NO;
-    if ([data isKindOfClass:[NSString class]]) {
-        hasTargetInData = [[FloatingButtonManager sharedInstance] stringContainsTarget:(NSString *)data];
-    } else if ([data isKindOfClass:[NSData class]]) {
-        hasTargetInData = [[FloatingButtonManager sharedInstance] dataContainsTarget:(NSData *)data];
-    }
-    
-    NSString *taskDesc = [[LogWindowManager sharedInstance] objectDescription:task maxLength:80];
-    NSString *dataDesc = [[LogWindowManager sharedInstance] objectDescription:data maxLength:120];
-    NSString *urlInfoDesc = [[LogWindowManager sharedInstance] objectDescription:urlInfo maxLength:120];
-    NSString *errorDesc = [[LogWindowManager sharedInstance] objectDescription:error maxLength:80];
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
-                     hasTargetInData ? @"🎯" : @"📋",
-                     [[LogWindowManager sharedInstance] objectDescription:task maxLength:1000], 
-                     [[LogWindowManager sharedInstance] objectDescription:data maxLength:2000], 
-                     [[LogWindowManager sharedInstance] objectDescription:urlInfo maxLength:2000], 
-                     [[LogWindowManager sharedInstance] objectDescription:error maxLength:1000]];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKURLSchemeHandler handleResponseWithTask] %@ %@ | task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
-                     hasTargetInData ? @"🎯" : @"📋",
-                     hasTargetInData ? @"发现目标" : @"",
-                     didReplaceData ? @"[已替换]" : @"",
-                     taskDesc, dataDesc, urlInfoDesc, errorDesc];
-    NSLog(@"[Tweak] %@", fullLog);
-    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    
-    orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, modifiedData, urlInfo, error);
-    g_inHook = NO;
-}
-// ========== 2. WKUserContentController ==========
-
-static void (*orig_WKUserContentController_addUserScript)(id self, SEL _cmd, WKUserScript *userScript);
-static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUserScript *userScript) {
-    if (g_inHook) {
-        orig_WKUserContentController_addUserScript(self, _cmd, userScript);
-        return;
-    }
-    g_inHook = YES;
-    NSString *source = @"(nil)";
-    BOOL hasTarget = NO;
-    BOOL didReplace = NO;
-    WKUserScript *modifiedScript = userScript;
-    if (userScript) {
-        NSString *src = [userScript source];
-        if (src) {
-            source = [[LogWindowManager sharedInstance] truncateString:src maxLength:120];
-            hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:src];
-            NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:src];
-            didReplace = ![modified isEqualToString:src];
-            if (didReplace) {
-                modifiedScript = [[WKUserScript alloc] initWithSource:modified injectionTime:[userScript injectionTime] forMainFrameOnly:[userScript isForMainFrameOnly]];
-            }
-        }
-    }
-    NSString *srcFull = @"(nil)";
-    if (userScript) {
-        NSString *src = [userScript source];
-        if (src) srcFull = src;
-    }
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ %@ | source=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     srcFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [WKUserContentController addUserScript] %@ %@ | source=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     source];
-    NSLog(@"[Tweak] %@", fullLog);
-    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    orig_WKUserContentController_addUserScript(self, _cmd, modifiedScript);
-    g_inHook = NO;
-}
-
-// ========== 3. BDPLocalFileManager ==========
-
-static NSData *(*orig_BDPLocalFileManager_readFileWithLocalURL)(id self, SEL _cmd, NSURL *url, id *error);
-static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, NSURL *url, id *error) {
-    if (g_inHook) {
-        return orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
-    }
-    g_inHook = YES;
-    NSString *urlStr = url ? [url absoluteString] : @"(nil)";
-    NSData *result = orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
-    
-    NSData *modifiedResult = [[FloatingButtonManager sharedInstance] replaceTargetInData:result];
-    BOOL didReplace = (modifiedResult != result && ![modifiedResult isEqual:result]);
-    BOOL hasTarget = result ? [[FloatingButtonManager sharedInstance] dataContainsTarget:result] : NO;
-    
-    NSString *dataPreview = @"(nil)";
-    if (result) {
-        dataPreview = [[LogWindowManager sharedInstance] truncateData:result maxLength:80];
-    }
-    NSString *dataFull = @"(nil)";
-    if (result) {
-        dataFull = [result description];
-    }
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager readFileWithLocalURL] %@ %@ | url=%@ -> data=%@", 
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     urlStr, dataFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager readFileWithLocalURL] %@ %@ | url=%@ -> data=%@", 
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     urlStr, dataPreview];
-    NSLog(@"[Tweak] %@", fullLog);
-    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    g_inHook = NO;
-    return modifiedResult;
-}
-static NSString *(*orig_BDPLocalFileManager_stringWithLocalURL)(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error);
-static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error) {
-    if (g_inHook) {
-        return orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
-    }
-    g_inHook = YES;
-    NSString *urlStr = url ? [url absoluteString] : @"(nil)";
-    NSString *result = orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
-    
-    NSString *modifiedResult = [[FloatingButtonManager sharedInstance] replaceTargetInString:result];
-    BOOL didReplace = ![modifiedResult isEqualToString:result];
-    BOOL hasTarget = result ? [[FloatingButtonManager sharedInstance] stringContainsTarget:result] : NO;
-    
-    NSString *strPreview = @"(nil)";
-    if (result) {
-        strPreview = [[LogWindowManager sharedInstance] truncateString:result maxLength:120];
-    }
-    NSString *strFull = result ?: @"(nil)";
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ %@ | url=%@ -> string=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     (unsigned long)encoding,
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     urlStr, strFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ %@ | url=%@ -> string=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     (unsigned long)encoding,
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     urlStr, strPreview];
-    NSLog(@"[Tweak] %@", fullLog);
-    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    g_inHook = NO;
-    return modifiedResult;
-}
-
-// ========== 4. BDPWKGamePage ==========
-
-static void (*orig_BDPWKGamePage_evaluateJavaScript)(id self, SEL _cmd, NSString *javaScriptString, id completionHandler);
-static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *javaScriptString, id completionHandler) {
-    if (g_inHook) {
-        orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, javaScriptString, completionHandler);
-        return;
-    }
-    g_inHook = YES;
-    NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:javaScriptString];
-    BOOL didReplace = ![modified isEqualToString:javaScriptString];
-    BOOL hasTarget = javaScriptString && [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
-    NSString *preview = @"(nil)";
-    if (javaScriptString) {
-        preview = [[LogWindowManager sharedInstance] truncateString:javaScriptString maxLength:120];
-    }
-    NSString *scriptFull = javaScriptString ?: @"(nil)";
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     scriptFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     preview];
-    NSLog(@"[Tweak] %@", fullLog);
-    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    orig_BDPWKGamePage_evaluateJavaScript(self, _cmd, modified, completionHandler);
-    g_inHook = NO;
-}
-
-// ========== 5. BDPWKGameBusinessEngine ==========
-
-static void (*orig_BDPWKGameBusinessEngine_evaluateScript)(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion);
-static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id script, NSInteger pageID, NSUInteger dest, id completion) {
-    if (g_inHook) {
-        orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, script, pageID, dest, completion);
-        return;
-    }
-    g_inHook = YES;
-    
-    id modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInObject:script];
-    BOOL didReplace = (modifiedScript != script && ![modifiedScript isEqual:script]);
-    BOOL hasTarget = NO;
-    NSString *scriptPreview = @"(nil)";
-    NSString *scriptFull = @"(nil)";
-    
-    if (script) {
-        if ([script isKindOfClass:[NSString class]]) {
-            NSString *str = (NSString *)script;
-            scriptPreview = [[LogWindowManager sharedInstance] truncateString:str maxLength:120];
-            scriptFull = str;
-            hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
-        } else if ([script isKindOfClass:[NSData class]]) {
-            NSData *data = (NSData *)script;
-            scriptPreview = [[LogWindowManager sharedInstance] truncateData:data maxLength:80];
-            scriptFull = [data description];
-            hasTarget = [[FloatingButtonManager sharedInstance] dataContainsTarget:data];
-        } else {
-            scriptPreview = [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([script class]), script];
-            scriptFull = scriptPreview;
-        }
-    }
-    
-    NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     (long)pageID,
-                     (unsigned long)dest,
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     scriptFull];
-    NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKGameBusinessEngine evaluateScript] pageID:%ld dest:%lu %@ %@ | script=%@",
-                     hasTarget ? @"🎯" : @"📋",
-                     (long)pageID,
-                     (unsigned long)dest,
-                     hasTarget ? @"发现目标" : @"",
-                     didReplace ? @"[已替换]" : @"",
-                     scriptPreview];
-    NSLog(@"[Tweak] %@", fullLog);
-    [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-    orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, modifiedScript, pageID, dest, completion);
-    g_inHook = NO;
-}
 #pragma mark - ========== 启用所有 Hook 入口机制 ==========
 
 - (void)enableAllHooks {
@@ -1342,7 +1099,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         NSMutableArray *batchLogs = [NSMutableArray array];
         int successCount = 0;
         int failCount = 0;
-        
+
         {
             Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
             if (!cls) {
@@ -1362,118 +1119,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 }
             }
         }
-        
-        {
-            Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
-            if (!cls) {
-                [batchLogs addObject:@"❌ BDPWKURLSchemeHandler 类未找到 (handleResponseWithTask)"];
-                failCount++;
-            } else {
-                SEL sel = NSSelectorFromString(@"handleResponseWithTask:data:ofURLInfo:withError:");
-                Method method = class_getInstanceMethod(cls, sel);
-                if (!method) {
-                    [batchLogs addObject:@"⚠️ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPWKURLSchemeHandler_handleResponseWithTask = (void (*)(id, SEL, id, id, id, id))method_getImplementation(method);
-                    method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_handleResponseWithTask);
-                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: Hook 成功"];
-                    successCount++;
-                }
-            }
-        }
-        
-        {
-            Class cls = NSClassFromString(@"WKUserContentController");
-            if (!cls) {
-                [batchLogs addObject:@"❌ WKUserContentController 类未找到"];
-                failCount++;
-            } else {
-                SEL sel = NSSelectorFromString(@"addUserScript:");
-                Method method = class_getInstanceMethod(cls, sel);
-                if (!method) {
-                    [batchLogs addObject:@"⚠️ WKUserContentController addUserScript: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_WKUserContentController_addUserScript = (void (*)(id, SEL, WKUserScript *))method_getImplementation(method);
-                    method_setImplementation(method, (IMP)hook_WKUserContentController_addUserScript);
-                    [batchLogs addObject:@"✅ WKUserContentController addUserScript: Hook 成功"];
-                    successCount++;
-                }
-            }
-        }
-        
-        {
-            Class cls = NSClassFromString(@"BDPLocalFileManager");
-            if (!cls) {
-                [batchLogs addObject:@"❌ BDPLocalFileManager 类未找到"];
-                failCount += 2;
-            } else {
-                SEL sel1 = NSSelectorFromString(@"readFileWithLocalURL:error:");
-                Method method1 = class_getInstanceMethod(cls, sel1);
-                if (!method1) {
-                    [batchLogs addObject:@"⚠️ BDPLocalFileManager readFileWithLocalURL:error: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPLocalFileManager_readFileWithLocalURL = (NSData *(*)(id, SEL, NSURL *, id *))method_getImplementation(method1);
-                    method_setImplementation(method1, (IMP)hook_BDPLocalFileManager_readFileWithLocalURL);
-                    [batchLogs addObject:@"✅ BDPLocalFileManager readFileWithLocalURL:error: Hook 成功"];
-                    successCount++;
-                }
-                SEL sel2 = NSSelectorFromString(@"stringWithLocalURL:encoding:error:");
-                Method method2 = class_getInstanceMethod(cls, sel2);
-                if (!method2) {
-                    [batchLogs addObject:@"⚠️ BDPLocalFileManager stringWithLocalURL:encoding:error: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPLocalFileManager_stringWithLocalURL = (NSString *(*)(id, SEL, NSURL *, unsigned long, id *))method_getImplementation(method2);
-                    method_setImplementation(method2, (IMP)hook_BDPLocalFileManager_stringWithLocalURL);
-                    [batchLogs addObject:@"✅ BDPLocalFileManager stringWithLocalURL:encoding:error: Hook 成功"];
-                    successCount++;
-                }
-            }
-        }
-        
-        {
-            Class cls = NSClassFromString(@"BDPWKGamePage");
-            if (!cls) {
-                [batchLogs addObject:@"❌ BDPWKGamePage 类未找到"];
-                failCount++;
-            } else {
-                SEL sel = NSSelectorFromString(@"evaluateJavaScript:completionHandler:");
-                Method method = class_getInstanceMethod(cls, sel);
-                if (!method) {
-                    [batchLogs addObject:@"⚠️ BDPWKGamePage evaluateJavaScript:completionHandler: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPWKGamePage_evaluateJavaScript = (void (*)(id, SEL, NSString *, id))method_getImplementation(method);
-                    method_setImplementation(method, (IMP)hook_BDPWKGamePage_evaluateJavaScript);
-                    [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功"];
-                    successCount++;
-                }
-            }
-        }
-        
-        {
-            Class cls = NSClassFromString(@"BDPWKGameBusinessEngine");
-            if (!cls) {
-                [batchLogs addObject:@"❌ BDPWKGameBusinessEngine 类未找到"];
-                failCount++;
-            } else {
-                SEL sel = NSSelectorFromString(@"evaluateScript:pageID:dest:completion:");
-                Method method = class_getInstanceMethod(cls, sel);
-                if (!method) {
-                    [batchLogs addObject:@"⚠️ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: 方法未找到"];
-                    failCount++;
-                } else {
-                    orig_BDPWKGameBusinessEngine_evaluateScript = (void (*)(id, SEL, id, NSInteger, NSUInteger, id))method_getImplementation(method);
-                    method_setImplementation(method, (IMP)hook_BDPWKGameBusinessEngine_evaluateScript);
-                    [batchLogs addObject:@"✅ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功"];
-                    successCount++;
-                }
-            }
-        }
-        
+
         self.totalHookedMethods = successCount;
         [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
         NSString *summary = [NSString stringWithFormat:@"📊 Hook 启用完成 | 成功: %d | 失败: %d", successCount, failCount];

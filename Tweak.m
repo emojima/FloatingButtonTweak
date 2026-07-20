@@ -32,6 +32,7 @@
 @property (nonatomic, assign) BOOL isVisible;
 @property (nonatomic, assign) CGPoint lastTranslation;
 @property (nonatomic, assign) BOOL logEnabled;
+@property (nonatomic, assign) BOOL logToFileEnabled;
 @property (nonatomic, copy) NSString *logFilePath;
 + (instancetype)sharedInstance;
 - (void)toggleLogWindow;
@@ -40,6 +41,7 @@
 - (void)appendLog:(NSString *)log;
 - (void)appendLogsBatch:(NSArray *)logs;
 - (void)setLogEnabled:(BOOL)enabled;
+- (void)setLogToFileEnabled:(BOOL)enabled;
 - (void)writeLogToFile:(NSString *)log;
 @end
 
@@ -61,6 +63,7 @@
         _isVisible = NO;
         _lastTranslation = CGPointZero;
         _logEnabled = NO;
+        _logToFileEnabled = NO;
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
         NSString *documentsDir = [paths firstObject];
         _logFilePath = [documentsDir stringByAppendingPathComponent:@"TweakHookLog.txt"];
@@ -236,7 +239,12 @@
         if (self.logTextView) {
             self.logTextView.text = @"";
         }
-    } else {
+    }
+}
+
+- (void)setLogToFileEnabled:(BOOL)enabled {
+    _logToFileEnabled = enabled;
+    if (enabled) {
         NSString *log = [NSString stringWithFormat:@"📁 日志文件路径: %@", self.logFilePath];
         [self writeLogToFile:log];
     }
@@ -268,6 +276,7 @@
 }
 
 - (void)writeLogToFile:(NSString *)log {
+    if (!self.logToFileEnabled) return;
     if (!log || log.length == 0) return;
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
@@ -454,54 +463,314 @@
     return topWindow ?: [UIApplication sharedApplication].keyWindow;
 }
 
+#pragma mark - ========== 全新 UI 菜单面板 ==========
+
 - (void)buttonTapped:(UIButton *)sender {
-    if (self.currentMenuAlert) {
-        [self.currentMenuAlert dismissViewControllerAnimated:YES completion:^{
-            self.currentMenuAlert = nil;
-        }];
-        return;
-    }
+    [self showCustomMenuPanel];
+}
+
+- (void)showCustomMenuPanel {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
     UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🛠️ 功能菜单"
-                                                                   message:@"请选择要执行的功能"
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    NSString *logStatus = [[LogWindowManager sharedInstance] isVisible] ? @" (显示中)" : @"";
-    BOOL logEnabled = [[LogWindowManager sharedInstance] logEnabled];
-    NSString *logSwitchTitle = logEnabled ? @"🔴 关闭日志输出" : @"🟢 开启日志输出";
-    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@" (已替换 %d 次)", self.totalReplacedCount] : @"";
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"运行时字符串替换%@", replaceStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        self.currentMenuAlert = nil;
-        NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
-        [self showMessage:@"替换状态" message:msg];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:logSwitchTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        self.currentMenuAlert = nil;
-        BOOL newState = ![[LogWindowManager sharedInstance] logEnabled];
-        [[LogWindowManager sharedInstance] setLogEnabled:newState];
-        NSString *msg = newState ? @"日志输出已开启" : @"日志输出已关闭，日志已清空";
-        [self showMessage:@"日志开关" message:msg];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"日志窗口%@", logStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        self.currentMenuAlert = nil;
-        [[LogWindowManager sharedInstance] toggleLogWindow];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"关闭悬浮窗" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        self.currentMenuAlert = nil;
+
+    // 创建半透明背景遮罩
+    UIView *overlayView = [[UIView alloc] initWithFrame:keyWindow.bounds];
+    overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.5];
+    overlayView.tag = 99999;
+    overlayView.alpha = 0;
+    [keyWindow addSubview:overlayView];
+
+    // 点击遮罩关闭
+    UITapGestureRecognizer *tapOverlay = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissMenuPanel)];
+    [overlayView addGestureRecognizer:tapOverlay];
+
+    // 创建菜单面板
+    CGFloat panelWidth = 320;
+    CGFloat panelHeight = 420;
+    CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
+    CGFloat panelY = (keyWindow.bounds.size.height - panelHeight) / 2;
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, panelHeight)];
+    panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
+    panel.layer.cornerRadius = 16;
+    panel.layer.masksToBounds = YES;
+    panel.layer.borderWidth = 1;
+    panel.layer.borderColor = [UIColor colorWithRed:0.3 green:0.3 blue:0.35 alpha:1.0].CGColor;
+    panel.tag = 99998;
+    panel.alpha = 0;
+    panel.transform = CGAffineTransformMakeScale(0.9, 0.9);
+    [keyWindow addSubview:panel];
+
+    // 标题栏
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
+    titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
+    [panel addSubview:titleBar];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
+    titleLabel.text = @"🛠️ Tweak 功能面板";
+    titleLabel.textColor = [UIColor whiteColor];
+    titleLabel.font = [UIFont boldSystemFontOfSize:17];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    [titleBar addSubview:titleLabel];
+
+    // 关闭按钮
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closeBtn.frame = CGRectMake(panelWidth - 44, 8, 32, 32);
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor colorWithRed:1.0 green:0.4 blue:0.4 alpha:1.0] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    [closeBtn addTarget:self action:@selector(dismissMenuPanel) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:closeBtn];
+
+    CGFloat yOffset = 64;
+    CGFloat rowHeight = 56;
+
+    // ========== 第1行：日志窗口开关 ==========
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"📋"
+                      title:@"日志窗口显示"
+                   subtitle:[[LogWindowManager sharedInstance] isVisible] ? @"当前：显示中" : @"当前：已隐藏"
+                    isOn:[[LogWindowManager sharedInstance] isVisible]
+                      tag:1001];
+    yOffset += rowHeight;
+
+    // ========== 第2行：日志输出开关 ==========
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"📝"
+                      title:@"日志输出到屏幕"
+                   subtitle:[[LogWindowManager sharedInstance] logEnabled] ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:[[LogWindowManager sharedInstance] logEnabled]
+                      tag:1002];
+    yOffset += rowHeight;
+
+    // ========== 第3行：日志写入文件开关 ==========
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"📁"
+                      title:@"日志写入文件"
+                   subtitle:[[LogWindowManager sharedInstance] logToFileEnabled] ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:[[LogWindowManager sharedInstance] logToFileEnabled]
+                      tag:1003];
+    yOffset += rowHeight + 8;
+
+    // 分隔线
+    UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [panel addSubview:sep1];
+
+    // ========== 第4行：字符串替换状态 ==========
+    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
+    [self addActionRowToPanel:panel
+                          y:yOffset
+                        icon:@"🔄"
+                       title:@"字符串替换"
+                    subtitle:replaceStatus
+                       color:[UIColor colorWithRed:0.3 green:0.8 blue:0.4 alpha:1.0]
+                      action:@selector(showReplaceStatus)];
+    yOffset += rowHeight;
+
+    // ========== 第5行：查看日志文件路径 ==========
+    [self addActionRowToPanel:panel
+                          y:yOffset
+                        icon:@"📂"
+                       title:@"日志文件路径"
+                    subtitle:@"点击查看"
+                       color:[UIColor colorWithRed:0.4 green:0.6 blue:1.0 alpha:1.0]
+                      action:@selector(showLogFilePath)];
+    yOffset += rowHeight + 8;
+
+    // 分隔线
+    UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [panel addSubview:sep2];
+
+    // ========== 第6行：关闭悬浮窗（红色） ==========
+    UIButton *hideFloatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    hideFloatBtn.frame = CGRectMake(16, yOffset, panelWidth - 32, 44);
+    hideFloatBtn.backgroundColor = [UIColor colorWithRed:0.9 green:0.25 blue:0.25 alpha:1.0];
+    hideFloatBtn.layer.cornerRadius = 10;
+    hideFloatBtn.layer.masksToBounds = YES;
+    [hideFloatBtn setTitle:@"❌ 关闭悬浮窗" forState:UIControlStateNormal];
+    [hideFloatBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    hideFloatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [hideFloatBtn addTarget:self action:@selector(hideFloatingButtonFromMenu) forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:hideFloatBtn];
+
+    // 动画显示
+    [UIView animateWithDuration:0.25 animations:^{
+        overlayView.alpha = 1;
+        panel.alpha = 1;
+        panel.transform = CGAffineTransformIdentity;
+    }];
+}
+
+// 创建带开关的行
+- (void)addSwitchRowToPanel:(UIView *)panel y:(CGFloat)y icon:(NSString *)icon title:(NSString *)title subtitle:(NSString *)subtitle isOn:(BOOL)isOn tag:(NSInteger)tag {
+    CGFloat panelWidth = panel.frame.size.width;
+
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, y, panelWidth, 56)];
+    row.tag = tag;
+    [panel addSubview:row];
+
+    // 图标
+    UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, 32, 32)];
+    iconLabel.text = icon;
+    iconLabel.font = [UIFont systemFontOfSize:22];
+    [row addSubview:iconLabel];
+
+    // 标题
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 6, 180, 22)];
+    titleLabel.text = title;
+    titleLabel.textColor = [UIColor whiteColor];
+    titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [row addSubview:titleLabel];
+
+    // 副标题
+    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 28, 180, 18)];
+    subLabel.text = subtitle;
+    subLabel.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.65 alpha:1.0];
+    subLabel.font = [UIFont systemFontOfSize:12];
+    [row addSubview:subLabel];
+
+    // 开关
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(panelWidth - 66, 12, 51, 31)];
+    sw.on = isOn;
+    sw.tag = tag;
+    sw.onTintColor = [UIColor colorWithRed:0.2 green:0.7 blue:1.0 alpha:1.0];
+    [sw addTarget:self action:@selector(switchValueChanged:) forControlEvents:UIControlEventValueChanged];
+    [row addSubview:sw];
+
+    // 底部分隔线
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(56, 55, panelWidth - 72, 1)];
+    line.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
+    [row addSubview:line];
+}
+
+// 创建可点击的行
+- (void)addActionRowToPanel:(UIView *)panel y:(CGFloat)y icon:(NSString *)icon title:(NSString *)title subtitle:(NSString *)subtitle color:(UIColor *)color action:(SEL)action {
+    CGFloat panelWidth = panel.frame.size.width;
+
+    UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
+    row.frame = CGRectMake(0, y, panelWidth, 56);
+    [row addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:row];
+
+    // 图标
+    UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, 32, 32)];
+    iconLabel.text = icon;
+    iconLabel.font = [UIFont systemFontOfSize:22];
+    [row addSubview:iconLabel];
+
+    // 标题
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 6, 180, 22)];
+    titleLabel.text = title;
+    titleLabel.textColor = [UIColor whiteColor];
+    titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [row addSubview:titleLabel];
+
+    // 副标题（带颜色）
+    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 28, 180, 18)];
+    subLabel.text = subtitle;
+    subLabel.textColor = color;
+    subLabel.font = [UIFont systemFontOfSize:12];
+    [row addSubview:subLabel];
+
+    // 箭头
+    UILabel *arrowLabel = [[UILabel alloc] initWithFrame:CGRectMake(panelWidth - 36, 14, 24, 24)];
+    arrowLabel.text = @"›";
+    arrowLabel.textColor = [UIColor colorWithRed:0.5 green:0.5 blue:0.55 alpha:1.0];
+    arrowLabel.font = [UIFont systemFontOfSize:22];
+    [row addSubview:arrowLabel];
+
+    // 底部分隔线
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(56, 55, panelWidth - 72, 1)];
+    line.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
+    [row addSubview:line];
+}
+
+// 开关状态变化
+- (void)switchValueChanged:(UISwitch *)sender {
+    switch (sender.tag) {
+        case 1001: { // 日志窗口显示
+            [[LogWindowManager sharedInstance] toggleLogWindow];
+            [self updateMenuSubtitleForTag:1001 text:[[LogWindowManager sharedInstance] isVisible] ? @"当前：显示中" : @"当前：已隐藏"];
+            break;
+        }
+        case 1002: { // 日志输出到屏幕
+            BOOL newState = ![[LogWindowManager sharedInstance] logEnabled];
+            [[LogWindowManager sharedInstance] setLogEnabled:newState];
+            [self updateMenuSubtitleForTag:1002 text:newState ? @"当前：已开启" : @"当前：已关闭"];
+            if (!newState) {
+                [[LogWindowManager sharedInstance] hideLogWindow];
+            }
+            break;
+        }
+        case 1003: { // 日志写入文件
+            BOOL newState = ![[LogWindowManager sharedInstance] logToFileEnabled];
+            [[LogWindowManager sharedInstance] setLogToFileEnabled:newState];
+            [self updateMenuSubtitleForTag:1003 text:newState ? @"当前：已开启" : @"当前：已关闭"];
+            break;
+        }
+    }
+}
+
+- (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text {
+    UIWindow *keyWindow = [self topmostWindow];
+    if (!keyWindow) return;
+    UIView *panel = [keyWindow viewWithTag:99998];
+    if (!panel) return;
+    UIView *row = [panel viewWithTag:tag];
+    if (!row) return;
+    for (UIView *sub in row.subviews) {
+        if ([sub isKindOfClass:[UILabel class]] && sub.frame.origin.y > 20) {
+            ((UILabel *)sub).text = text;
+            break;
+        }
+    }
+}
+
+- (void)showReplaceStatus {
+    NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
+    [self showMessage:@"替换状态" message:msg];
+    [self dismissMenuPanel];
+}
+
+- (void)showLogFilePath {
+    NSString *path = [[LogWindowManager sharedInstance] logFilePath];
+    UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
+    pasteboard.string = path;
+    [self showMessage:@"日志文件路径" message:[NSString stringWithFormat:@"%@\n\n已复制到剪贴板", path]];
+    [self dismissMenuPanel];
+}
+
+- (void)hideFloatingButtonFromMenu {
+    [self dismissMenuPanel];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [self hideFloatingButton];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        self.currentMenuAlert = nil;
-    }]];
-    self.currentMenuAlert = alert;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [topVC presentViewController:alert animated:YES completion:nil];
     });
 }
 
-#pragma mark - ========== 字符串替换工具（增强版：支持 NSString 和 NSData）==========
+- (void)dismissMenuPanel {
+    UIWindow *keyWindow = [self topmostWindow];
+    if (!keyWindow) return;
+    UIView *overlay = [keyWindow viewWithTag:99999];
+    UIView *panel = [keyWindow viewWithTag:99998];
+    
+    [UIView animateWithDuration:0.2 animations:^{
+        overlay.alpha = 0;
+        panel.alpha = 0;
+        panel.transform = CGAffineTransformMakeScale(0.9, 0.9);
+    } completion:^(BOOL finished) {
+        [overlay removeFromSuperview];
+        [panel removeFromSuperview];
+    }];
+}
+
+#pragma mark - ========== 字符串替换工具 ==========
 
 - (NSString *)targetKeyword {
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
@@ -628,7 +897,6 @@ static _Thread_local BOOL g_inHook = NO;
 
 #pragma mark - ========== 动态拦截 WKURLSchemeTask 响应数据 ==========
 
-// 用于存储每个 task 对应的 URL，以便在响应回调中记录
 static NSMutableDictionary *g_taskURLMap = nil;
 
 static void initTaskURLMap() {
@@ -638,12 +906,10 @@ static void initTaskURLMap() {
     });
 }
 
-// 获取 urlSchemeTask 的唯一标识
 static NSString *taskKey(id urlSchemeTask) {
     return [NSString stringWithFormat:@"%p", urlSchemeTask];
 }
 
-// 记录 URL 到 task 映射
 static void storeTaskURL(id urlSchemeTask, NSString *url) {
     initTaskURLMap();
     @synchronized (g_taskURLMap) {
@@ -651,7 +917,6 @@ static void storeTaskURL(id urlSchemeTask, NSString *url) {
     }
 }
 
-// 获取并移除 task 对应的 URL
 static NSString *popTaskURL(id urlSchemeTask) {
     initTaskURLMap();
     NSString *key = taskKey(urlSchemeTask);
@@ -663,13 +928,11 @@ static NSString *popTaskURL(id urlSchemeTask) {
     return url ?: @"(unknown)";
 }
 
-// Hook urlSchemeTask 的 didReceiveData: 方法，拦截响应数据
 static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
     if (!urlSchemeTask) return;
     
     Class taskClass = [urlSchemeTask class];
     
-    // 检查是否已经 hook 过这个类
     static NSMutableSet *hookedClasses = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -679,12 +942,11 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
     @synchronized (hookedClasses) {
         NSString *clsName = NSStringFromClass(taskClass);
         if ([hookedClasses containsObject:clsName]) {
-            return; // 已经 hook 过
+            return;
         }
         [hookedClasses addObject:clsName];
     }
     
-    // Hook didReceiveData:
     SEL didReceiveDataSel = NSSelectorFromString(@"didReceiveData:");
     Method didReceiveDataMethod = class_getInstanceMethod(taskClass, didReceiveDataSel);
     if (!didReceiveDataMethod) return;
@@ -694,12 +956,10 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
     IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
         NSString *taskUrl = popTaskURL(taskSelf);
         
-        // 对响应数据进行字符串检查和替换
         NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
         BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
         BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
         
-        // 记录到日志
         NSString *dataPreview = @"(nil)";
         if (data) {
             dataPreview = [[FloatingButtonManager sharedInstance] truncateData:data maxLength:200];
@@ -724,7 +984,6 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
         NSLog(@"[Tweak] %@", fullLog);
         [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
         
-        // 写入完整响应内容到日志文件（单独一行，方便查看）
         if (data && data.length > 0) {
             NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
             if (!dataStr) {
@@ -741,20 +1000,17 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
             }
         }
         
-        // 调用原始方法，传入可能被修改的数据
         typedef void (*orig_fn_t)(id, SEL, NSData *);
         ((orig_fn_t)origDidReceiveData)(taskSelf, didReceiveDataSel, modifiedData);
     });
     
     method_setImplementation(didReceiveDataMethod, newDidReceiveData);
     
-    // 同时 Hook didFinish 来清理
     SEL didFinishSel = NSSelectorFromString(@"didFinish");
     Method didFinishMethod = class_getInstanceMethod(taskClass, didFinishSel);
     if (didFinishMethod) {
         IMP origDidFinish = method_getImplementation(didFinishMethod);
         IMP newDidFinish = imp_implementationWithBlock(^(id taskSelf) {
-            // 清理可能残留的 URL 映射
             popTaskURL(taskSelf);
             typedef void (*orig_fn_t)(id, SEL);
             ((orig_fn_t)origDidFinish)(taskSelf, didFinishSel);
@@ -762,7 +1018,6 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
         method_setImplementation(didFinishMethod, newDidFinish);
     }
     
-    // Hook didFailWithError: 来清理
     SEL didFailSel = NSSelectorFromString(@"didFailWithError:");
     Method didFailMethod = class_getInstanceMethod(taskClass, didFailSel);
     if (didFailMethod) {
@@ -796,10 +1051,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         }
     }
 
-    // 存储 URL 到 task 映射，供响应拦截使用
     storeTaskURL(urlSchemeTask, urlStr);
-    
-    // 动态 Hook 这个 urlSchemeTask 实例的类，拦截响应数据
     hookURLSchemeTask(urlSchemeTask, urlStr);
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
@@ -808,7 +1060,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
     
-    // 写入请求 URL 到日志文件
     NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
     [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
 
@@ -1062,16 +1313,15 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
     g_inHook = NO;
 }
 
-#pragma mark - ========== 启用所有 Hook（App 启动时调用）==========
+#pragma mark - ========== 启用所有 Hook ==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook...（增强版：支持 NSString/NSData 统一替换 + URLSchemeTask 响应拦截）"];
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook..."];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *batchLogs = [NSMutableArray array];
         int successCount = 0;
         int failCount = 0;
         
-        // 1. BDPWKURLSchemeHandler - webView:startURLSchemeTask:
         {
             Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
             if (!cls) {
@@ -1092,7 +1342,6 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
             }
         }
         
-        // 2. BDPWKURLSchemeHandler - handleResponseWithTask:data:ofURLInfo:withError:
         {
             Class cls = NSClassFromString(@"BDPWKURLSchemeHandler");
             if (!cls) {
@@ -1107,13 +1356,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKURLSchemeHandler_handleResponseWithTask = (void (*)(id, SEL, id, id, id, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_handleResponseWithTask);
-                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: Hook 成功 [支持 NSData 替换]"];
+                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler handleResponseWithTask:data:ofURLInfo:withError: Hook 成功"];
                     successCount++;
                 }
             }
         }
         
-        // 3. WKUserContentController - addUserScript:
         {
             Class cls = NSClassFromString(@"WKUserContentController");
             if (!cls) {
@@ -1128,13 +1376,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_WKUserContentController_addUserScript = (void (*)(id, SEL, WKUserScript *))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_WKUserContentController_addUserScript);
-                    [batchLogs addObject:@"✅ WKUserContentController addUserScript: Hook 成功 [支持脚本替换]"];
+                    [batchLogs addObject:@"✅ WKUserContentController addUserScript: Hook 成功"];
                     successCount++;
                 }
             }
         }
         
-        // 4. BDPLocalFileManager
         {
             Class cls = NSClassFromString(@"BDPLocalFileManager");
             if (!cls) {
@@ -1149,7 +1396,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPLocalFileManager_readFileWithLocalURL = (NSData *(*)(id, SEL, NSURL *, id *))method_getImplementation(method1);
                     method_setImplementation(method1, (IMP)hook_BDPLocalFileManager_readFileWithLocalURL);
-                    [batchLogs addObject:@"✅ BDPLocalFileManager readFileWithLocalURL:error: Hook 成功 [支持 NSData 替换]"];
+                    [batchLogs addObject:@"✅ BDPLocalFileManager readFileWithLocalURL:error: Hook 成功"];
                     successCount++;
                 }
                 SEL sel2 = NSSelectorFromString(@"stringWithLocalURL:encoding:error:");
@@ -1160,13 +1407,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPLocalFileManager_stringWithLocalURL = (NSString *(*)(id, SEL, NSURL *, unsigned long, id *))method_getImplementation(method2);
                     method_setImplementation(method2, (IMP)hook_BDPLocalFileManager_stringWithLocalURL);
-                    [batchLogs addObject:@"✅ BDPLocalFileManager stringWithLocalURL:encoding:error: Hook 成功 [支持 NSString 替换]"];
+                    [batchLogs addObject:@"✅ BDPLocalFileManager stringWithLocalURL:encoding:error: Hook 成功"];
                     successCount++;
                 }
             }
         }
         
-        // 5. BDPWKGamePage - evaluateJavaScript:completionHandler:
         {
             Class cls = NSClassFromString(@"BDPWKGamePage");
             if (!cls) {
@@ -1181,13 +1427,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKGamePage_evaluateJavaScript = (void (*)(id, SEL, NSString *, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKGamePage_evaluateJavaScript);
-                    [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功 [支持 NSString 替换]"];
+                    [batchLogs addObject:@"✅ BDPWKGamePage evaluateJavaScript:completionHandler: Hook 成功"];
                     successCount++;
                 }
             }
         }
         
-        // 6. BDPWKGameBusinessEngine - evaluateScript:pageID:dest:completion:
         {
             Class cls = NSClassFromString(@"BDPWKGameBusinessEngine");
             if (!cls) {
@@ -1202,7 +1447,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKGameBusinessEngine_evaluateScript = (void (*)(id, SEL, id, NSInteger, NSUInteger, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKGameBusinessEngine_evaluateScript);
-                    [batchLogs addObject:@"✅ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功 [支持 NSString/NSData 替换]"];
+                    [batchLogs addObject:@"✅ BDPWKGameBusinessEngine evaluateScript:pageID:dest:completion: Hook 成功"];
                     successCount++;
                 }
             }
@@ -1212,7 +1457,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
         NSString *summary = [NSString stringWithFormat:@"📊 Hook 启用完成 | 成功: %d | 失败: %d", successCount, failCount];
         [[LogWindowManager sharedInstance] appendLog:summary];
-        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 Hook 已启用，NSString/NSData 统一替换 + URLSchemeTask 响应拦截已激活"];
+        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 Hook 已启用"];
     });
 }
 
@@ -1238,6 +1483,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
 }
 
 - (void)hideFloatingButton {
+    [self dismissMenuPanel];
     [self.keepOnTopTimer invalidate];
     self.keepOnTopTimer = nil;
     [self.floatingButton removeFromSuperview];

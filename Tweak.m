@@ -361,6 +361,52 @@
         }
     });
 }
+- (NSString *)truncateString:(NSString *)string maxLength:(NSInteger)maxLength {
+    if (!string || string.length == 0) return @"(nil)";
+    if (string.length <= maxLength) return string;
+    return [NSString stringWithFormat:@"%@...(%lu)", [string substringToIndex:maxLength], (unsigned long)(string.length - maxLength)];
+}
+
+- (NSData *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
+    if (!data || data.length == 0) return data;
+    // 如果需要对二进制 Data 做长度截断逻辑
+    if (data.length <= maxLength) return data;
+    return [data subdataWithRange:NSMakeRange(0, maxLength)];
+}
+
+- (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength {
+    if (!obj) return @"(nil)";
+    if ([obj isKindOfClass:[NSString class]]) {
+        return [self truncateString:(NSString *)obj maxLength:120];
+    }
+    if ([obj isKindOfClass:[NSData class]]) {
+        NSString *hexStr = [obj description];
+        if (hexStr.length <= maxLength) return hexStr;
+        return [NSString stringWithFormat:@"%@...(%lu bytes)", [hexStr substringToIndex:maxLength], (unsigned long)((NSData *)obj).length];
+    }
+    if ([obj isKindOfClass:[NSURL class]]) {
+        return [(NSURL *)obj absoluteString] ?: @"(nil URL)";
+    }
+    if ([obj isKindOfClass:[NSError class]]) {
+        NSError *err = (NSError *)obj;
+        return [NSString stringWithFormat:@"[NSError domain:%@ code:%ld %@]", err.domain, (long)err.code, err.localizedDescription];
+    }
+    if ([obj isKindOfClass:[NSNumber class]]) {
+        return [(NSNumber *)obj stringValue];
+    }
+    if ([obj isKindOfClass:[NSArray class]]) {
+        return [NSString stringWithFormat:@"[NSArray count:%lu]", (unsigned long)[(NSArray *)obj count]];
+    }
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        return [NSString stringWithFormat:@"[NSDictionary count:%lu]", (unsigned long)[(NSDictionary *)obj count]];
+    }
+    NSString *desc = [obj description];
+    if (desc.length > maxLength) {
+        return [NSString stringWithFormat:@"(%@)%@...(%lu)", NSStringFromClass([obj class]), [desc substringToIndex:maxLength], (unsigned long)(desc.length - maxLength)];
+    }
+    return [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([obj class]), desc];
+}
+
 @end
 
 @implementation FloatingButtonManager

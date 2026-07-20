@@ -925,6 +925,10 @@
 static _Thread_local BOOL g_inHook = NO;
 #pragma mark - ========== 动态拦截 WKURLSchemeTask 响应数据 ==========
 
+
+// 定义关联对象的唯一 Key，用于跨方法传递 Content-Type
+static const char *kTaskContentTypeKey = "kTaskContentTypeKey";
+
 static void hookURLSchemeTask(id urlSchemeTask) {
     if (!urlSchemeTask) return;
     
@@ -944,79 +948,102 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         [hookedClasses addObject:clsName];
     }
     
+    // ================== 1. Hook didReceiveResponse: 捕获 Content-Type ==================
+    SEL didReceiveResponseSel = NSSelectorFromString(@"didReceiveResponse:");
+    Method didReceiveResponseMethod = class_getInstanceMethod(taskClass, didReceiveResponseSel);
+    if (didReceiveResponseMethod) {
+        IMP origDidReceiveResponse = method_getImplementation(didReceiveResponseMethod);
+        
+        IMP newDidReceiveResponse = imp_implementationWithBlock(^(id taskSelf, NSURLResponse *response) {
+            NSString *contentType = @"(unknown)";
+            
+            // 优先从 HTTP 响应头提取，其次兜底使用 MIMEType
+            if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+                NSDictionary *headers = [(NSHTTPURLResponse *)response allHeaderFields];
+                contentType = headers[@"Content-Type"] ?: headers[@"content-type"] ?: @"(none)";
+            } else if (response.MIMEType) {
+                contentType = response.MIMEType;
+            }
+            
+            // 使用 Associated Object 将 Content-Type 动态绑定到 taskSelf 实例上
+            objc_setAssociatedObject(taskSelf, kTaskContentTypeKey, contentType, OBJC_ASSOCIATION_COPY_NONATOMIC);
+            
+            typedef void (*orig_resp_fn_t)(id, SEL, NSURLResponse *);
+            ((orig_resp_fn_t)origDidReceiveResponse)(taskSelf, didReceiveResponseSel, response);
+        });
+        
+        method_setImplementation(didReceiveResponseMethod, newDidReceiveResponse);
+    }
+    
+    // ================== 2. Hook didReceiveData: 处理并记录日志（带 Content-Type） ==================
     SEL didReceiveDataSel = NSSelectorFromString(@"didReceiveData:");
     Method didReceiveDataMethod = class_getInstanceMethod(taskClass, didReceiveDataSel);
-    if (!didReceiveDataMethod) return;
-    
-    IMP origDidReceiveData = method_getImplementation(didReceiveDataMethod);
-    
-    IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
-        // === 【完全修复点】抛弃不可靠的全局指针映射传递，现场从 taskSelf 的 request 协议属性中安全动态读取绝对真实的 URL ===
-        NSString *taskUrl = @"(unknown)";
-        if ([taskSelf respondsToSelector:@selector(request)]) {
-            NSURLRequest *req = [taskSelf request];
-            if (req && req.URL) {
-                taskUrl = [req.URL absoluteString];
+    if (didReceiveDataMethod) {
+        IMP origDidReceiveData = method_getImplementation(didReceiveDataMethod);
+        
+        IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
+            // 安全从 taskSelf 現場获取 request 真实的 URL
+            NSString *taskUrl = @"(unknown)";
+            if ([taskSelf respondsToSelector:@selector(request)]) {
+                NSURLRequest *req = [taskSelf request];
+                if (req && req.URL) {
+                    taskUrl = [req.URL absoluteString];
+                }
             }
-        }
-        
-        NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
-        BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
-        BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
-        
-        NSString *dataPreview = @"(nil)";
-        if (data) {
-            dataPreview = [[LogWindowManager sharedInstance] truncateData:data maxLength:200];
-        }
-        NSString *dataFull = @"(nil)";
-        if (data) {
-            dataFull = [data description];
-        }
-        
-        NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData] URL=%@ %@ %@ | data=%@",
-                         hasTarget ? @"🎯" : @"📋",
-                         taskUrl,
-                         hasTarget ? @"发现目标" : @"",
-                         didReplace ? @"[已替换]" : @"",
-                         dataFull];
-        NSString *displayLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData] URL=%@ %@ %@ | data=%@",
-                         hasTarget ? @"🎯" : @"📋",
-                         taskUrl,
-                         hasTarget ? @"发现目标" : @"",
-                         didReplace ? @"[已替换]" : @"",
-                         dataPreview];
-        NSLog(@"[Tweak] %@", fullLog);
-        [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-        
-        if (data && data.length > 0) {
-            NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            if (!dataStr) {
-                dataStr = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
-            }
-            if (dataStr && dataStr.length > 0) {
-                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE] URL=%@ | LENGTH=%lu | CONTENT=%@",
-                                       taskUrl, (unsigned long)data.length, dataStr];
-                [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
-            } else {
-                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE] URL=%@ | LENGTH=%lu | CONTENT=(binary data)",
-                                       taskUrl, (unsigned long)data.length];
+            
+            // 【核心改动】取出之前在 didReceiveResponse: 中绑定的 Content-Type
+            NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
+            
+            // 执行原本的业务逻辑与目标替换
+            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
+            BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
+            BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
+            
+            NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
+            NSString *dataFull = data ? [data description] : @"(nil)";
+            
+            // 日志加入 [Type=xxx] 的格式化输出
+            NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%%@ %@ %@ | data=%@",
+                             hasTarget ? @"🎯" : @"📋",
+                             contentType,
+                             taskUrl,
+                             hasTarget ? @"发现目标" : @"",
+                             didReplace ? @"[已替换]" : @"",
+                             dataFull];
+                             
+            NSString *displayLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ %@ | data=%@",
+                             hasTarget ? @"🎯" : @"📋",
+                             contentType,
+                             taskUrl,
+                             hasTarget ? @"发现目标" : @"",
+                             didReplace ? @"[已替换]" : @"",
+                             dataPreview];
+                             
+            NSLog(@"[Tweak] %@", fullLog);
+            [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+            
+            if (data && data.length > 0) {
+                NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE][Type=%@] URL=%@ | LENGTH=%lu | CONTENT=%@",
+                                       contentType, taskUrl, (unsigned long)data.length, dataStr ?: @"(binary data)"];
                 [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
             }
-        }
+            
+            typedef void (*orig_data_fn_t)(id, SEL, NSData *);
+            ((orig_data_fn_t)origDidReceiveData)(taskSelf, didReceiveDataSel, modifiedData);
+        });
         
-        typedef void (*orig_fn_t)(id, SEL, NSData *);
-        ((orig_fn_t)origDidReceiveData)(taskSelf, didReceiveDataSel, modifiedData);
-    });
+        method_setImplementation(didReceiveDataMethod, newDidReceiveData);
+    }
     
-    method_setImplementation(didReceiveDataMethod, newDidReceiveData);
-    
+    // ================== 3. 底层其余配套方法保持原样 ==================
     SEL didFinishSel = NSSelectorFromString(@"didFinish");
     Method didFinishMethod = class_getInstanceMethod(taskClass, didFinishSel);
     if (didFinishMethod) {
         IMP origDidFinish = method_getImplementation(didFinishMethod);
         IMP newDidFinish = imp_implementationWithBlock(^(id taskSelf) {
-            typedef void (*orig_fn_t)(id, SEL);
-            ((orig_fn_t)origDidFinish)(taskSelf, didFinishSel);
+            typedef void (*orig_finish_fn_t)(id, SEL);
+            ((orig_finish_fn_t)origDidFinish)(taskSelf, didFinishSel);
         });
         method_setImplementation(didFinishMethod, newDidFinish);
     }
@@ -1026,12 +1053,13 @@ static void hookURLSchemeTask(id urlSchemeTask) {
     if (didFailMethod) {
         IMP origDidFail = method_getImplementation(didFailMethod);
         IMP newDidFail = imp_implementationWithBlock(^(id taskSelf, NSError *error) {
-            typedef void (*orig_fn_t)(id, SEL, NSError *);
-            ((orig_fn_t)origDidFail)(taskSelf, didFailSel, error);
+            typedef void (*orig_fail_fn_t)(id, SEL, NSError *);
+            ((orig_fail_fn_t)origDidFail)(taskSelf, didFailSel, error);
         });
         method_setImplementation(didFailMethod, newDidFail);
     }
 }
+
 
 #pragma mark - ========== 用户指定的 Hook 实现 ==========
 

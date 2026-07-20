@@ -2,10 +2,6 @@
 #import <objc/runtime.h>
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebKit/WebKit.h>
-#import <mach/mach.h>
-#import <mach/vm_map.h>
-#import <setjmp.h>
-#import <signal.h>
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
@@ -17,9 +13,7 @@
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
-// 新增：统一替换入口，支持 NSString 和 NSData
 - (id)replaceTargetInObject:(id)obj;
-// 新增：NSData 替换
 - (NSData *)replaceTargetInData:(NSData *)data;
 - (NSString *)replaceTargetInString:(NSString *)string;
 - (NSString *)targetKeyword;
@@ -490,10 +484,6 @@
         NSString *msg = newState ? @"日志输出已开启" : @"日志输出已关闭，日志已清空";
         [self showMessage:@"日志开关" message:msg];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Unity WASM 内存搜索" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        self.currentMenuAlert = nil;
-        [self searchWASMMemory];
-    }]];
     [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"日志窗口%@", logStatus] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         self.currentMenuAlert = nil;
         [[LogWindowManager sharedInstance] toggleLogWindow];
@@ -575,7 +565,6 @@
     return data;
 }
 
-// 统一替换入口：自动判断类型，返回同类型替换后对象
 - (id)replaceTargetInObject:(id)obj {
     if (!obj) return obj;
     if ([obj isKindOfClass:[NSString class]]) {
@@ -637,6 +626,156 @@
 
 static _Thread_local BOOL g_inHook = NO;
 
+#pragma mark - ========== 动态拦截 WKURLSchemeTask 响应数据 ==========
+
+// 用于存储每个 task 对应的 URL，以便在响应回调中记录
+static NSMutableDictionary *g_taskURLMap = nil;
+
+static void initTaskURLMap() {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        g_taskURLMap = [NSMutableDictionary dictionary];
+    });
+}
+
+// 获取 urlSchemeTask 的唯一标识
+static NSString *taskKey(id urlSchemeTask) {
+    return [NSString stringWithFormat:@"%p", urlSchemeTask];
+}
+
+// 记录 URL 到 task 映射
+static void storeTaskURL(id urlSchemeTask, NSString *url) {
+    initTaskURLMap();
+    @synchronized (g_taskURLMap) {
+        g_taskURLMap[taskKey(urlSchemeTask)] = url ?: @"(unknown)";
+    }
+}
+
+// 获取并移除 task 对应的 URL
+static NSString *popTaskURL(id urlSchemeTask) {
+    initTaskURLMap();
+    NSString *key = taskKey(urlSchemeTask);
+    NSString *url = nil;
+    @synchronized (g_taskURLMap) {
+        url = g_taskURLMap[key];
+        [g_taskURLMap removeObjectForKey:key];
+    }
+    return url ?: @"(unknown)";
+}
+
+// Hook urlSchemeTask 的 didReceiveData: 方法，拦截响应数据
+static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
+    if (!urlSchemeTask) return;
+    
+    Class taskClass = [urlSchemeTask class];
+    
+    // 检查是否已经 hook 过这个类
+    static NSMutableSet *hookedClasses = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        hookedClasses = [NSMutableSet set];
+    });
+    
+    @synchronized (hookedClasses) {
+        NSString *clsName = NSStringFromClass(taskClass);
+        if ([hookedClasses containsObject:clsName]) {
+            return; // 已经 hook 过
+        }
+        [hookedClasses addObject:clsName];
+    }
+    
+    // Hook didReceiveData:
+    SEL didReceiveDataSel = NSSelectorFromString(@"didReceiveData:");
+    Method didReceiveDataMethod = class_getInstanceMethod(taskClass, didReceiveDataSel);
+    if (!didReceiveDataMethod) return;
+    
+    IMP origDidReceiveData = method_getImplementation(didReceiveDataMethod);
+    
+    IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
+        NSString *taskUrl = popTaskURL(taskSelf);
+        
+        // 对响应数据进行字符串检查和替换
+        NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
+        BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
+        BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
+        
+        // 记录到日志
+        NSString *dataPreview = @"(nil)";
+        if (data) {
+            dataPreview = [[FloatingButtonManager sharedInstance] truncateData:data maxLength:200];
+        }
+        NSString *dataFull = @"(nil)";
+        if (data) {
+            dataFull = [data description];
+        }
+        
+        NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData] URL=%@ %@ %@ | data=%@",
+                         hasTarget ? @"🎯" : @"📋",
+                         taskUrl,
+                         hasTarget ? @"发现目标" : @"",
+                         didReplace ? @"[已替换]" : @"",
+                         dataFull];
+        NSString *displayLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData] URL=%@ %@ %@ | data=%@",
+                         hasTarget ? @"🎯" : @"📋",
+                         taskUrl,
+                         hasTarget ? @"发现目标" : @"",
+                         didReplace ? @"[已替换]" : @"",
+                         dataPreview];
+        NSLog(@"[Tweak] %@", fullLog);
+        [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+        
+        // 写入完整响应内容到日志文件（单独一行，方便查看）
+        if (data && data.length > 0) {
+            NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            if (!dataStr) {
+                dataStr = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+            }
+            if (dataStr && dataStr.length > 0) {
+                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE] URL=%@ | LENGTH=%lu | CONTENT=%@",
+                                       taskUrl, (unsigned long)data.length, dataStr];
+                [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
+            } else {
+                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE] URL=%@ | LENGTH=%lu | CONTENT=(binary data)",
+                                       taskUrl, (unsigned long)data.length];
+                [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
+            }
+        }
+        
+        // 调用原始方法，传入可能被修改的数据
+        typedef void (*orig_fn_t)(id, SEL, NSData *);
+        ((orig_fn_t)origDidReceiveData)(taskSelf, didReceiveDataSel, modifiedData);
+    });
+    
+    method_setImplementation(didReceiveDataMethod, newDidReceiveData);
+    
+    // 同时 Hook didFinish 来清理
+    SEL didFinishSel = NSSelectorFromString(@"didFinish");
+    Method didFinishMethod = class_getInstanceMethod(taskClass, didFinishSel);
+    if (didFinishMethod) {
+        IMP origDidFinish = method_getImplementation(didFinishMethod);
+        IMP newDidFinish = imp_implementationWithBlock(^(id taskSelf) {
+            // 清理可能残留的 URL 映射
+            popTaskURL(taskSelf);
+            typedef void (*orig_fn_t)(id, SEL);
+            ((orig_fn_t)origDidFinish)(taskSelf, didFinishSel);
+        });
+        method_setImplementation(didFinishMethod, newDidFinish);
+    }
+    
+    // Hook didFailWithError: 来清理
+    SEL didFailSel = NSSelectorFromString(@"didFailWithError:");
+    Method didFailMethod = class_getInstanceMethod(taskClass, didFailSel);
+    if (didFailMethod) {
+        IMP origDidFail = method_getImplementation(didFailMethod);
+        IMP newDidFail = imp_implementationWithBlock(^(id taskSelf, NSError *error) {
+            popTaskURL(taskSelf);
+            typedef void (*orig_fn_t)(id, SEL, NSError *);
+            ((orig_fn_t)origDidFail)(taskSelf, didFailSel, error);
+        });
+        method_setImplementation(didFailMethod, newDidFail);
+    }
+}
+
 #pragma mark - ========== 用户指定的 Hook 实现 ==========
 
 // ========== 1. BDPWKURLSchemeHandler ==========
@@ -648,6 +787,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         return;
     }
     g_inHook = YES;
+
     NSString *urlStr = @"(nil)";
     if (urlSchemeTask && [urlSchemeTask respondsToSelector:@selector(request)]) {
         NSURLRequest *req = [urlSchemeTask request];
@@ -655,11 +795,23 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
             urlStr = [req.URL absoluteString];
         }
     }
+
+    // 存储 URL 到 task 映射，供响应拦截使用
+    storeTaskURL(urlSchemeTask, urlStr);
+    
+    // 动态 Hook 这个 urlSchemeTask 实例的类，拦截响应数据
+    hookURLSchemeTask(urlSchemeTask, urlStr);
+
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
                            [[FloatingButtonManager sharedInstance] truncateString:urlStr maxLength:120]];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+    
+    // 写入请求 URL 到日志文件
+    NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
+    [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
+
     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
     g_inHook = NO;
 }
@@ -672,7 +824,6 @@ static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd,
     }
     g_inHook = YES;
     
-    // 对 data 参数进行字符串检查和替换（支持 NSString 和 NSData）
     id modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInObject:data];
     BOOL didReplaceData = (modifiedData != data && ![modifiedData isEqual:data]);
     BOOL hasTargetInData = NO;
@@ -761,7 +912,6 @@ static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, 
     NSString *urlStr = url ? [url absoluteString] : @"(nil)";
     NSData *result = orig_BDPLocalFileManager_readFileWithLocalURL(self, _cmd, url, error);
     
-    // 对返回的 NSData 进行字符串检查和替换
     NSData *modifiedResult = [[FloatingButtonManager sharedInstance] replaceTargetInData:result];
     BOOL didReplace = (modifiedResult != result && ![modifiedResult isEqual:result]);
     BOOL hasTarget = result ? [[FloatingButtonManager sharedInstance] dataContainsTarget:result] : NO;
@@ -799,7 +949,6 @@ static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, 
     NSString *urlStr = url ? [url absoluteString] : @"(nil)";
     NSString *result = orig_BDPLocalFileManager_stringWithLocalURL(self, _cmd, url, encoding, error);
     
-    // 对返回的 NSString 进行替换
     NSString *modifiedResult = [[FloatingButtonManager sharedInstance] replaceTargetInString:result];
     BOOL didReplace = ![modifiedResult isEqualToString:result];
     BOOL hasTarget = result ? [[FloatingButtonManager sharedInstance] stringContainsTarget:result] : NO;
@@ -870,7 +1019,6 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
     }
     g_inHook = YES;
     
-    // 统一替换入口：支持 NSString 和 NSData
     id modifiedScript = [[FloatingButtonManager sharedInstance] replaceTargetInObject:script];
     BOOL didReplace = (modifiedScript != script && ![modifiedScript isEqual:script]);
     BOOL hasTarget = NO;
@@ -917,7 +1065,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
 #pragma mark - ========== 启用所有 Hook（App 启动时调用）==========
 
 - (void)enableAllHooks {
-    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook...（增强版：支持 NSString/NSData 统一替换）"];
+    [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook...（增强版：支持 NSString/NSData 统一替换 + URLSchemeTask 响应拦截）"];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSMutableArray *batchLogs = [NSMutableArray array];
         int successCount = 0;
@@ -938,7 +1086,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask = (void (*)(id, SEL, WKWebView *, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask);
-                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler webView:startURLSchemeTask: Hook 成功"];
+                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler webView:startURLSchemeTask: Hook 成功 [支持响应数据拦截]"];
                     successCount++;
                 }
             }
@@ -1064,7 +1212,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
         NSString *summary = [NSString stringWithFormat:@"📊 Hook 启用完成 | 成功: %d | 失败: %d", successCount, failCount];
         [[LogWindowManager sharedInstance] appendLog:summary];
-        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 Hook 已启用，NSString/NSData 统一替换已激活"];
+        [[LogWindowManager sharedInstance] appendLog:@"🎉 所有 Hook 已启用，NSString/NSData 统一替换 + URLSchemeTask 响应拦截已激活"];
     });
 }
 
@@ -1103,162 +1251,6 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
         topVC = topVC.presentedViewController;
     }
     return topVC;
-}
-
-#pragma mark - ========== 内存搜索 ==========
-
-static kern_return_t safe_vm_read(vm_address_t address, vm_size_t size, vm_offset_t *outData, mach_msg_type_number_t *outSize) {
-    vm_offset_t data = 0;
-    mach_msg_type_number_t dataSize = 0;
-    kern_return_t kr = vm_read(mach_task_self(), address, size, &data, &dataSize);
-    if (kr == KERN_SUCCESS) {
-        *outData = data;
-        *outSize = dataSize;
-    }
-    return kr;
-}
-
-static void safe_vm_free(vm_offset_t data, mach_msg_type_number_t size) {
-    if (data != 0 && size > 0) {
-        vm_deallocate(mach_task_self(), data, size);
-    }
-}
-
-static int searchInCopiedMemory(const void *data, size_t dataSize, const char *target, size_t targetLen,
-                                  NSMutableArray *foundAddresses, vm_address_t baseAddr, int maxMatches) {
-    int count = 0;
-    const uint8_t *ptr = (const uint8_t *)data;
-    const uint8_t *end = ptr + dataSize;
-    while (ptr < end - targetLen && count < maxMatches) {
-        void *found = memmem(ptr, end - ptr, target, targetLen);
-        if (!found) break;
-        vm_address_t offset = (vm_address_t)((const uint8_t *)found - (const uint8_t *)data);
-        vm_address_t absoluteAddr = baseAddr + offset;
-        [foundAddresses addObject:[NSNumber numberWithUnsignedLongLong:absoluteAddr]];
-        count++;
-        ptr = (const uint8_t *)found + targetLen;
-    }
-    return count;
-}
-
-- (void)searchWASMMemory {
-    [[LogWindowManager sharedInstance] appendLog:@"🔍 开始 Unity WASM 内存搜索..."];
-    [[LogWindowManager sharedInstance] showLogWindow];
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        NSArray *searchStrings = @[@"freeRefreshNum", @"refreshNum", @"startChooseCount", @"ChooseCount", @"isRevive", @"isClickVideo"];
-        NSMutableDictionary *results = [NSMutableDictionary dictionary];
-        NSMutableDictionary *addresses = [NSMutableDictionary dictionary];
-        for (NSString *str in searchStrings) {
-            results[str] = @0;
-            addresses[str] = [NSMutableArray array];
-        }
-        int checkedRegions = 0;
-        int totalRegions = 0;
-        int skippedRegions = 0;
-        int readFailedRegions = 0;
-        NSTimeInterval startTime = [[NSDate date] timeIntervalSince1970];
-        NSTimeInterval maxDuration = 10.0;
-        const vm_size_t MAX_REGION_SIZE = 10 * 1024 * 1024;
-        const int MAX_MATCHES_PER_STRING = 50;
-        vm_address_t address = 0;
-        vm_size_t size = 0;
-        vm_region_basic_info_data_64_t info;
-        mach_msg_type_number_t infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-        memory_object_name_t objectName = MACH_PORT_NULL;
-        while (1) {
-            NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
-            if (currentTime - startTime > maxDuration) {
-                [[LogWindowManager sharedInstance] appendLog:@"⏱️ 搜索超时（10秒），提前结束"];
-                break;
-            }
-            kern_return_t kr = vm_region_64(mach_task_self(), &address, &size,
-                                            VM_REGION_BASIC_INFO_64,
-                                            (vm_region_info_t)&info, &infoCount, &objectName);
-            if (kr != KERN_SUCCESS) break;
-            totalRegions++;
-            BOOL isReadable = (info.protection & VM_PROT_READ) != 0;
-            if (!isReadable || size < 10) {
-                skippedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-            if (size > MAX_REGION_SIZE) {
-                skippedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-            checkedRegions++;
-            if (checkedRegions % 100 == 0) {
-                NSString *log = [NSString stringWithFormat:@"📊 已检查 %d 个区域...", checkedRegions];
-                NSLog(@"[Tweak] %@", log);
-                [[LogWindowManager sharedInstance] appendLog:log];
-                [NSThread sleepForTimeInterval:0.005];
-            }
-            vm_offset_t copiedData = 0;
-            mach_msg_type_number_t copiedSize = 0;
-            kern_return_t readKr = safe_vm_read(address, size, &copiedData, &copiedSize);
-            if (readKr != KERN_SUCCESS) {
-                readFailedRegions++;
-                address += size;
-                infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-                continue;
-            }
-            for (NSString *targetStr in searchStrings) {
-                const char *target = [targetStr UTF8String];
-                size_t targetLen = strlen(target);
-                if (copiedSize <= targetLen) continue;
-                NSMutableArray *foundAddrs = addresses[targetStr];
-                int currentCount = [results[targetStr] intValue];
-                if (currentCount >= MAX_MATCHES_PER_STRING) continue;
-                int remaining = MAX_MATCHES_PER_STRING - currentCount;
-                int found = searchInCopiedMemory((const void *)copiedData, (size_t)copiedSize, target, targetLen,
-                                                   foundAddrs, address, remaining);
-                if (found > 0) {
-                    results[targetStr] = @(currentCount + found);
-                }
-            }
-            safe_vm_free(copiedData, copiedSize);
-            address += size;
-            infoCount = VM_REGION_BASIC_INFO_COUNT_64;
-        }
-        NSMutableArray *batchLogs = [NSMutableArray array];
-        for (NSString *targetStr in searchStrings) {
-            int count = [results[targetStr] intValue];
-            NSArray *addrs = addresses[targetStr];
-            [batchLogs addObject:[NSString stringWithFormat:@"📌 '%@' 找到 %d 处", targetStr, count]];
-            int logCount = MIN((int)addrs.count, 10);
-            for (int i = 0; i < logCount; i++) {
-                NSNumber *addr = addrs[i];
-                [batchLogs addObject:[NSString stringWithFormat:@"   🔍 at %p", (void *)[addr unsignedLongLongValue]]];
-            }
-            if (addrs.count > 10) {
-                [batchLogs addObject:[NSString stringWithFormat:@"   ... 还有 %lu 处", (unsigned long)(addrs.count - 10)]];
-            }
-        }
-        if (batchLogs.count > 0) {
-            [[LogWindowManager sharedInstance] appendLogsBatch:batchLogs];
-        }
-        NSMutableString *report = [NSMutableString string];
-        [report appendFormat:@"扫描完成\n总内存区域: %d\n已检查区域: %d\n跳过区域: %d\n读取失败: %d\n",
-         totalRegions, checkedRegions, skippedRegions, readFailedRegions];
-        int totalFound = 0;
-        for (NSString *str in searchStrings) {
-            int count = [results[str] intValue];
-            totalFound += count;
-            [report appendFormat:@"%@: %d 处\n", str, count];
-        }
-        [report appendFormat:@"\n总计找到: %d 处", totalFound];
-        [[LogWindowManager sharedInstance] appendLog:report];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (totalFound > 0) {
-                [self showMessage:@"内存搜索成功" message:report];
-            } else {
-                [self showMessage:@"内存搜索完成" message:[NSString stringWithFormat:@"%@\n\n未找到任何目标字符串，可能：\n1. 字符串被混淆\n2. 使用 IL2CPP 全局元数据存储\n3. 字段名在编译期被优化掉", report]];
-            }
-        });
-    });
 }
 
 @end

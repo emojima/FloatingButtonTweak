@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebKit/WebKit.h>
+#import <AudioToolbox/AudioToolbox.h>
 
 @interface FloatingButtonManager : NSObject
 @property (nonatomic, strong) UIButton *floatingButton;
@@ -10,15 +11,19 @@
 @property (nonatomic, assign) int totalReplacedCount;
 @property (nonatomic, assign) int totalHookedMethods;
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
+@property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture; // 全局双指唤醒监听
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
+- (void)dismissMenuPanel;
+- (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text;
 - (id)replaceTargetInObject:(id)obj;
 - (NSData *)replaceTargetInData:(NSData *)data;
 - (NSString *)replaceTargetInString:(NSString *)string;
 - (NSString *)targetKeyword;
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
+- (void)enableAllHooks;
 @end
 
 @interface LogWindowManager : NSObject
@@ -40,11 +45,14 @@
 - (void)hideLogWindow;
 - (void)appendLog:(NSString *)log;
 - (void)appendLogsBatch:(NSArray *)logs;
+- (void)appendLogFull:(NSString *)fullLog displayLog:(NSString *)displayLog;
 - (void)setLogEnabled:(BOOL)enabled;
 - (void)setLogToFileEnabled:(BOOL)enabled;
 - (void)writeLogToFile:(NSString *)log;
+- (NSString *)truncateString:(NSString *)string maxLength:(NSInteger)maxLength;
+- (NSString *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength;
+- (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength;
 @end
-
 @implementation LogWindowManager
 
 + (instancetype)sharedInstance {
@@ -101,8 +109,9 @@
     } else {
         [self showLogWindow];
     }
+    // 触发联动更新功能面板的 UI 状态显示
+    [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:self.isVisible ? @"当前：显示中" : @"当前：已隐藏"];
 }
-
 - (void)showLogWindow {
     if (self.logContainerView) {
         self.logContainerView.hidden = NO;
@@ -195,8 +204,8 @@
 - (void)hideLogWindow {
     self.logContainerView.hidden = YES;
     self.isVisible = NO;
+    [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:@"当前：已隐藏"];
 }
-
 - (void)copyLogContent {
     if (self.logBuffer && self.logBuffer.length > 0) {
         UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
@@ -352,7 +361,6 @@
         }
     });
 }
-
 @end
 
 @implementation FloatingButtonManager
@@ -372,8 +380,32 @@
         _totalReplacedCount = 0;
         _totalHookedMethods = 0;
         _currentMenuAlert = nil;
+        [self setupGlobalWakeGesture];
     }
     return self;
+}
+
+- (void)setupGlobalWakeGesture {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.globalWakeGesture = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleGlobalWake:)];
+        self.globalWakeGesture.numberOfTouchesRequired = 2;
+        self.globalWakeGesture.minimumPressDuration = 2.0;
+        self.globalWakeGesture.cancelsTouchesInView = NO;
+        UIWindow *keyWindow = [self topmostWindow];
+        if (keyWindow) {
+            [keyWindow addGestureRecognizer:self.globalWakeGesture];
+        }
+    });
+}
+
+- (void)handleGlobalWake:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        if (!self.floatingButton) {
+            [self showFloatingButton];
+            AudioServicesPlaySystemSound(1519);
+            NSLog(@"[Tweak] 检测到双指长按 2 秒，悬浮窗已还原唤醒。");
+        }
+    }
 }
 
 - (void)showFloatingButton {
@@ -384,6 +416,9 @@
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
     self.lastWindow = keyWindow;
+    if (![keyWindow.gestureRecognizers containsObject:self.globalWakeGesture] && self.globalWakeGesture) {
+        [keyWindow addGestureRecognizer:self.globalWakeGesture];
+    }
     CGFloat buttonSize = 55.0;
     CGFloat padding = 20.0;
     CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
@@ -411,7 +446,6 @@
     [keyWindow bringSubviewToFront:self.floatingButton];
     [self startKeepOnTopTimer];
 }
-
 - (void)startKeepOnTopTimer {
     [self.keepOnTopTimer invalidate];
     self.keepOnTopTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
@@ -463,10 +497,15 @@
     return topWindow ?: [UIApplication sharedApplication].keyWindow;
 }
 
-#pragma mark - ========== 全新 UI 菜单面板 ==========
-
 - (void)buttonTapped:(UIButton *)sender {
-    [self showCustomMenuPanel];
+    UIWindow *keyWindow = [self topmostWindow];
+    if (!keyWindow) return;
+    UIView *existingPanel = [keyWindow viewWithTag:99998];
+    if (existingPanel) {
+        [self dismissMenuPanel];
+    } else {
+        [self showCustomMenuPanel];
+    }
 }
 
 - (void)showCustomMenuPanel {
@@ -475,18 +514,15 @@
     UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
 
-    // 创建半透明背景遮罩
     UIView *overlayView = [[UIView alloc] initWithFrame:keyWindow.bounds];
     overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.5];
     overlayView.tag = 99999;
     overlayView.alpha = 0;
     [keyWindow addSubview:overlayView];
 
-    // 点击遮罩关闭
     UITapGestureRecognizer *tapOverlay = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissMenuPanel)];
     [overlayView addGestureRecognizer:tapOverlay];
 
-    // 创建菜单面板
     CGFloat panelWidth = 320;
     CGFloat panelHeight = 420;
     CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
@@ -503,7 +539,6 @@
     panel.transform = CGAffineTransformMakeScale(0.9, 0.9);
     [keyWindow addSubview:panel];
 
-    // 标题栏
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
     [panel addSubview:titleBar];
@@ -515,7 +550,6 @@
     titleLabel.textAlignment = NSTextAlignmentCenter;
     [titleBar addSubview:titleLabel];
 
-    // 关闭按钮
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     closeBtn.frame = CGRectMake(panelWidth - 44, 8, 32, 32);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
@@ -526,8 +560,6 @@
 
     CGFloat yOffset = 64;
     CGFloat rowHeight = 56;
-
-    // ========== 第1行：日志窗口开关 ==========
     [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📋"
@@ -537,7 +569,6 @@
                       tag:1001];
     yOffset += rowHeight;
 
-    // ========== 第2行：日志输出开关 ==========
     [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📝"
@@ -547,7 +578,6 @@
                       tag:1002];
     yOffset += rowHeight;
 
-    // ========== 第3行：日志写入文件开关 ==========
     [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📁"
@@ -557,12 +587,10 @@
                       tag:1003];
     yOffset += rowHeight + 8;
 
-    // 分隔线
     UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
     sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
     [panel addSubview:sep1];
 
-    // ========== 第4行：字符串替换状态 ==========
     NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
     [self addActionRowToPanel:panel
                           y:yOffset
@@ -573,7 +601,6 @@
                       action:@selector(showReplaceStatus)];
     yOffset += rowHeight;
 
-    // ========== 第5行：查看日志文件路径 ==========
     [self addActionRowToPanel:panel
                           y:yOffset
                         icon:@"📂"
@@ -583,24 +610,20 @@
                       action:@selector(showLogFilePath)];
     yOffset += rowHeight + 8;
 
-    // 分隔线
     UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
     sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
     [panel addSubview:sep2];
 
-    // ========== 第6行：关闭悬浮窗（红色） ==========
     UIButton *hideFloatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     hideFloatBtn.frame = CGRectMake(16, yOffset, panelWidth - 32, 44);
     hideFloatBtn.backgroundColor = [UIColor colorWithRed:0.9 green:0.25 blue:0.25 alpha:1.0];
     hideFloatBtn.layer.cornerRadius = 10;
     hideFloatBtn.layer.masksToBounds = YES;
-    [hideFloatBtn setTitle:@"❌ 关闭悬浮窗" forState:UIControlStateNormal];
-    [hideFloatBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    hideFloatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [hideFloatBtn setTitle:@"❌ 关闭悬浮窗 (可双指长按2秒还原)" forState:UIControlStateNormal];
+    hideFloatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
     [hideFloatBtn addTarget:self action:@selector(hideFloatingButtonFromMenu) forControlEvents:UIControlEventTouchUpInside];
     [panel addSubview:hideFloatBtn];
 
-    // 动画显示
     [UIView animateWithDuration:0.25 animations:^{
         overlayView.alpha = 1;
         panel.alpha = 1;
@@ -608,35 +631,29 @@
     }];
 }
 
-// 创建带开关的行
 - (void)addSwitchRowToPanel:(UIView *)panel y:(CGFloat)y icon:(NSString *)icon title:(NSString *)title subtitle:(NSString *)subtitle isOn:(BOOL)isOn tag:(NSInteger)tag {
     CGFloat panelWidth = panel.frame.size.width;
-
     UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, y, panelWidth, 56)];
     row.tag = tag;
     [panel addSubview:row];
 
-    // 图标
     UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, 32, 32)];
     iconLabel.text = icon;
     iconLabel.font = [UIFont systemFontOfSize:22];
     [row addSubview:iconLabel];
 
-    // 标题
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 6, 180, 22)];
     titleLabel.text = title;
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:15];
     [row addSubview:titleLabel];
 
-    // 副标题
     UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 28, 180, 18)];
     subLabel.text = subtitle;
     subLabel.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.65 alpha:1.0];
     subLabel.font = [UIFont systemFontOfSize:12];
     [row addSubview:subLabel];
 
-    // 开关
     UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(panelWidth - 66, 12, 51, 31)];
     sw.on = isOn;
     sw.tag = tag;
@@ -644,63 +661,52 @@
     [sw addTarget:self action:@selector(switchValueChanged:) forControlEvents:UIControlEventValueChanged];
     [row addSubview:sw];
 
-    // 底部分隔线
     UIView *line = [[UIView alloc] initWithFrame:CGRectMake(56, 55, panelWidth - 72, 1)];
     line.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
     [row addSubview:line];
 }
 
-// 创建可点击的行
 - (void)addActionRowToPanel:(UIView *)panel y:(CGFloat)y icon:(NSString *)icon title:(NSString *)title subtitle:(NSString *)subtitle color:(UIColor *)color action:(SEL)action {
     CGFloat panelWidth = panel.frame.size.width;
-
     UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
     row.frame = CGRectMake(0, y, panelWidth, 56);
     [row addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     [panel addSubview:row];
 
-    // 图标
     UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, 32, 32)];
     iconLabel.text = icon;
     iconLabel.font = [UIFont systemFontOfSize:22];
     [row addSubview:iconLabel];
 
-    // 标题
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 6, 180, 22)];
     titleLabel.text = title;
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:15];
     [row addSubview:titleLabel];
 
-    // 副标题（带颜色）
     UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(56, 28, 180, 18)];
     subLabel.text = subtitle;
     subLabel.textColor = color;
     subLabel.font = [UIFont systemFontOfSize:12];
     [row addSubview:subLabel];
 
-    // 箭头
     UILabel *arrowLabel = [[UILabel alloc] initWithFrame:CGRectMake(panelWidth - 36, 14, 24, 24)];
     arrowLabel.text = @"›";
     arrowLabel.textColor = [UIColor colorWithRed:0.5 green:0.5 blue:0.55 alpha:1.0];
     arrowLabel.font = [UIFont systemFontOfSize:22];
     [row addSubview:arrowLabel];
 
-    // 底部分隔线
     UIView *line = [[UIView alloc] initWithFrame:CGRectMake(56, 55, panelWidth - 72, 1)];
     line.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
     [row addSubview:line];
 }
-
-// 开关状态变化
 - (void)switchValueChanged:(UISwitch *)sender {
     switch (sender.tag) {
-        case 1001: { // 日志窗口显示
+        case 1001: {
             [[LogWindowManager sharedInstance] toggleLogWindow];
-            [self updateMenuSubtitleForTag:1001 text:[[LogWindowManager sharedInstance] isVisible] ? @"当前：显示中" : @"当前：已隐藏"];
             break;
         }
-        case 1002: { // 日志输出到屏幕
+        case 1002: {
             BOOL newState = ![[LogWindowManager sharedInstance] logEnabled];
             [[LogWindowManager sharedInstance] setLogEnabled:newState];
             [self updateMenuSubtitleForTag:1002 text:newState ? @"当前：已开启" : @"当前：已关闭"];
@@ -709,7 +715,7 @@
             }
             break;
         }
-        case 1003: { // 日志写入文件
+        case 1003: {
             BOOL newState = ![[LogWindowManager sharedInstance] logToFileEnabled];
             [[LogWindowManager sharedInstance] setLogToFileEnabled:newState];
             [self updateMenuSubtitleForTag:1003 text:newState ? @"当前：已开启" : @"当前：已关闭"];
@@ -845,90 +851,35 @@
     return obj;
 }
 
-#pragma mark - ========== 日志输出工具 ==========
-
-- (NSString *)truncateString:(NSString *)string maxLength:(NSInteger)maxLength {
-    if (!string || string.length == 0) return @"(nil)";
-    if (string.length <= maxLength) return string;
-    return [NSString stringWithFormat:@"%@...(%lu)", [string substringToIndex:maxLength], (unsigned long)(string.length - maxLength)];
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    UIView *button = gesture.view;
+    CGPoint translation = [gesture translationInView:button.superview];
+    button.center = CGPointMake(button.center.x + translation.x, button.center.y + translation.y);
+    [gesture setTranslation:CGPointZero inView:button.superview];
 }
 
-- (NSString *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
-    if (!data || data.length == 0) return @"(nil)";
-    NSString *hexStr = [data description];
-    if (hexStr.length <= maxLength) return hexStr;
-    return [NSString stringWithFormat:@"%@...(%lu bytes)", [hexStr substringToIndex:maxLength], (unsigned long)data.length];
+- (void)hideFloatingButton {
+    [self dismissMenuPanel];
+    [self.keepOnTopTimer invalidate];
+    self.keepOnTopTimer = nil;
+    [self.floatingButton removeFromSuperview];
+    self.floatingButton = nil;
 }
 
-- (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength {
-    if (!obj) return @"(nil)";
-    if ([obj isKindOfClass:[NSString class]]) {
-        return [self truncateString:(NSString *)obj maxLength:120];
+- (UIViewController *)topViewControllerFromWindow:(UIWindow *)window {
+    UIViewController *topVC = window.rootViewController;
+    while (topVC.presentedViewController) {
+        topVC = topVC.presentedViewController;
     }
-    if ([obj isKindOfClass:[NSData class]]) {
-        return [self truncateData:(NSData *)obj maxLength:maxLength];
-    }
-    if ([obj isKindOfClass:[NSURL class]]) {
-        return [(NSURL *)obj absoluteString] ?: @"(nil URL)";
-    }
-    if ([obj isKindOfClass:[NSError class]]) {
-        NSError *err = (NSError *)obj;
-        return [NSString stringWithFormat:@"[NSError domain:%@ code:%ld %@]", err.domain, (long)err.code, err.localizedDescription];
-    }
-    if ([obj isKindOfClass:[NSNumber class]]) {
-        return [(NSNumber *)obj stringValue];
-    }
-    if ([obj isKindOfClass:[NSArray class]]) {
-        return [NSString stringWithFormat:@"[NSArray count:%lu]", (unsigned long)[(NSArray *)obj count]];
-    }
-    if ([obj isKindOfClass:[NSDictionary class]]) {
-        return [NSString stringWithFormat:@"[NSDictionary count:%lu]", (unsigned long)[(NSDictionary *)obj count]];
-    }
-    NSString *desc = [obj description];
-    if (desc.length > maxLength) {
-        return [NSString stringWithFormat:@"(%@)%@...(%lu)", NSStringFromClass([obj class]), [desc substringToIndex:maxLength], (unsigned long)(desc.length - maxLength)];
-    }
-    return [NSString stringWithFormat:@"(%@)%@", NSStringFromClass([obj class]), desc];
+    return topVC;
 }
 
 #pragma mark - ========== 递归保护 ==========
 
 static _Thread_local BOOL g_inHook = NO;
-
 #pragma mark - ========== 动态拦截 WKURLSchemeTask 响应数据 ==========
 
-static NSMutableDictionary *g_taskURLMap = nil;
-
-static void initTaskURLMap() {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        g_taskURLMap = [NSMutableDictionary dictionary];
-    });
-}
-
-static NSString *taskKey(id urlSchemeTask) {
-    return [NSString stringWithFormat:@"%p", urlSchemeTask];
-}
-
-static void storeTaskURL(id urlSchemeTask, NSString *url) {
-    initTaskURLMap();
-    @synchronized (g_taskURLMap) {
-        g_taskURLMap[taskKey(urlSchemeTask)] = url ?: @"(unknown)";
-    }
-}
-
-static NSString *popTaskURL(id urlSchemeTask) {
-    initTaskURLMap();
-    NSString *key = taskKey(urlSchemeTask);
-    NSString *url = nil;
-    @synchronized (g_taskURLMap) {
-        url = g_taskURLMap[key];
-        [g_taskURLMap removeObjectForKey:key];
-    }
-    return url ?: @"(unknown)";
-}
-
-static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
+static void hookURLSchemeTask(id urlSchemeTask) {
     if (!urlSchemeTask) return;
     
     Class taskClass = [urlSchemeTask class];
@@ -954,7 +905,14 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
     IMP origDidReceiveData = method_getImplementation(didReceiveDataMethod);
     
     IMP newDidReceiveData = imp_implementationWithBlock(^(id taskSelf, NSData *data) {
-        NSString *taskUrl = popTaskURL(taskSelf);
+        // === 【完全修复点】抛弃不可靠的全局指针映射传递，现场从 taskSelf 的 request 协议属性中安全动态读取绝对真实的 URL ===
+        NSString *taskUrl = @"(unknown)";
+        if ([taskSelf respondsToSelector:@selector(request)]) {
+            NSURLRequest *req = [taskSelf request];
+            if (req && req.URL) {
+                taskUrl = [req.URL absoluteString];
+            }
+        }
         
         NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
         BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
@@ -962,7 +920,7 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
         
         NSString *dataPreview = @"(nil)";
         if (data) {
-            dataPreview = [[FloatingButtonManager sharedInstance] truncateData:data maxLength:200];
+            dataPreview = [[LogWindowManager sharedInstance] truncateData:data maxLength:200];
         }
         NSString *dataFull = @"(nil)";
         if (data) {
@@ -1011,7 +969,6 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
     if (didFinishMethod) {
         IMP origDidFinish = method_getImplementation(didFinishMethod);
         IMP newDidFinish = imp_implementationWithBlock(^(id taskSelf) {
-            popTaskURL(taskSelf);
             typedef void (*orig_fn_t)(id, SEL);
             ((orig_fn_t)origDidFinish)(taskSelf, didFinishSel);
         });
@@ -1023,7 +980,6 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *urlStr) {
     if (didFailMethod) {
         IMP origDidFail = method_getImplementation(didFailMethod);
         IMP newDidFail = imp_implementationWithBlock(^(id taskSelf, NSError *error) {
-            popTaskURL(taskSelf);
             typedef void (*orig_fn_t)(id, SEL, NSError *);
             ((orig_fn_t)origDidFail)(taskSelf, didFailSel, error);
         });
@@ -1051,12 +1007,12 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         }
     }
 
-    storeTaskURL(urlSchemeTask, urlStr);
-    hookURLSchemeTask(urlSchemeTask, urlStr);
+    // 触发子任务中内部协议方法的底层拦截绑定
+    hookURLSchemeTask(urlSchemeTask);
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
-                           [[FloatingButtonManager sharedInstance] truncateString:urlStr maxLength:120]];
+                           [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
     
@@ -1084,16 +1040,16 @@ static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd,
         hasTargetInData = [[FloatingButtonManager sharedInstance] dataContainsTarget:(NSData *)data];
     }
     
-    NSString *taskDesc = [[FloatingButtonManager sharedInstance] objectDescription:task maxLength:80];
-    NSString *dataDesc = [[FloatingButtonManager sharedInstance] objectDescription:data maxLength:120];
-    NSString *urlInfoDesc = [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:120];
-    NSString *errorDesc = [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:80];
+    NSString *taskDesc = [[LogWindowManager sharedInstance] objectDescription:task maxLength:80];
+    NSString *dataDesc = [[LogWindowManager sharedInstance] objectDescription:data maxLength:120];
+    NSString *urlInfoDesc = [[LogWindowManager sharedInstance] objectDescription:urlInfo maxLength:120];
+    NSString *errorDesc = [[LogWindowManager sharedInstance] objectDescription:error maxLength:80];
     NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKURLSchemeHandler handleResponseWithTask] task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
                      hasTargetInData ? @"🎯" : @"📋",
-                     [[FloatingButtonManager sharedInstance] objectDescription:task maxLength:1000], 
-                     [[FloatingButtonManager sharedInstance] objectDescription:data maxLength:2000], 
-                     [[FloatingButtonManager sharedInstance] objectDescription:urlInfo maxLength:2000], 
-                     [[FloatingButtonManager sharedInstance] objectDescription:error maxLength:1000]];
+                     [[LogWindowManager sharedInstance] objectDescription:task maxLength:1000], 
+                     [[LogWindowManager sharedInstance] objectDescription:data maxLength:2000], 
+                     [[LogWindowManager sharedInstance] objectDescription:urlInfo maxLength:2000], 
+                     [[LogWindowManager sharedInstance] objectDescription:error maxLength:1000]];
     NSString *displayLog = [NSString stringWithFormat:@"%@ [BDPWKURLSchemeHandler handleResponseWithTask] %@ %@ | task=%@ | data=%@ | ofURLInfo=%@ | withError=%@",
                      hasTargetInData ? @"🎯" : @"📋",
                      hasTargetInData ? @"发现目标" : @"",
@@ -1105,7 +1061,6 @@ static void hook_BDPWKURLSchemeHandler_handleResponseWithTask(id self, SEL _cmd,
     orig_BDPWKURLSchemeHandler_handleResponseWithTask(self, _cmd, task, modifiedData, urlInfo, error);
     g_inHook = NO;
 }
-
 // ========== 2. WKUserContentController ==========
 
 static void (*orig_WKUserContentController_addUserScript)(id self, SEL _cmd, WKUserScript *userScript);
@@ -1122,7 +1077,7 @@ static void hook_WKUserContentController_addUserScript(id self, SEL _cmd, WKUser
     if (userScript) {
         NSString *src = [userScript source];
         if (src) {
-            source = [[FloatingButtonManager sharedInstance] truncateString:src maxLength:120];
+            source = [[LogWindowManager sharedInstance] truncateString:src maxLength:120];
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:src];
             NSString *modified = [[FloatingButtonManager sharedInstance] replaceTargetInString:src];
             didReplace = ![modified isEqualToString:src];
@@ -1169,7 +1124,7 @@ static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, 
     
     NSString *dataPreview = @"(nil)";
     if (result) {
-        dataPreview = [[FloatingButtonManager sharedInstance] truncateData:result maxLength:80];
+        dataPreview = [[LogWindowManager sharedInstance] truncateData:result maxLength:80];
     }
     NSString *dataFull = @"(nil)";
     if (result) {
@@ -1190,7 +1145,6 @@ static NSData *hook_BDPLocalFileManager_readFileWithLocalURL(id self, SEL _cmd, 
     g_inHook = NO;
     return modifiedResult;
 }
-
 static NSString *(*orig_BDPLocalFileManager_stringWithLocalURL)(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error);
 static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, NSURL *url, unsigned long encoding, id *error) {
     if (g_inHook) {
@@ -1206,7 +1160,7 @@ static NSString *hook_BDPLocalFileManager_stringWithLocalURL(id self, SEL _cmd, 
     
     NSString *strPreview = @"(nil)";
     if (result) {
-        strPreview = [[FloatingButtonManager sharedInstance] truncateString:result maxLength:120];
+        strPreview = [[LogWindowManager sharedInstance] truncateString:result maxLength:120];
     }
     NSString *strFull = result ?: @"(nil)";
     NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPLocalFileManager stringWithLocalURL] encoding:%lu %@ %@ | url=%@ -> string=%@",
@@ -1241,7 +1195,7 @@ static void hook_BDPWKGamePage_evaluateJavaScript(id self, SEL _cmd, NSString *j
     BOOL hasTarget = javaScriptString && [[FloatingButtonManager sharedInstance] stringContainsTarget:javaScriptString];
     NSString *preview = @"(nil)";
     if (javaScriptString) {
-        preview = [[FloatingButtonManager sharedInstance] truncateString:javaScriptString maxLength:120];
+        preview = [[LogWindowManager sharedInstance] truncateString:javaScriptString maxLength:120];
     }
     NSString *scriptFull = javaScriptString ?: @"(nil)";
     NSString *fullLog = [NSString stringWithFormat:@"%@ [BDPWKGamePage evaluateJavaScript] %@ %@ | script=%@",
@@ -1279,12 +1233,12 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
     if (script) {
         if ([script isKindOfClass:[NSString class]]) {
             NSString *str = (NSString *)script;
-            scriptPreview = [[FloatingButtonManager sharedInstance] truncateString:str maxLength:120];
+            scriptPreview = [[LogWindowManager sharedInstance] truncateString:str maxLength:120];
             scriptFull = str;
             hasTarget = [[FloatingButtonManager sharedInstance] stringContainsTarget:str];
         } else if ([script isKindOfClass:[NSData class]]) {
             NSData *data = (NSData *)script;
-            scriptPreview = [[FloatingButtonManager sharedInstance] truncateData:data maxLength:80];
+            scriptPreview = [[LogWindowManager sharedInstance] truncateData:data maxLength:80];
             scriptFull = [data description];
             hasTarget = [[FloatingButtonManager sharedInstance] dataContainsTarget:data];
         } else {
@@ -1312,8 +1266,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
     orig_BDPWKGameBusinessEngine_evaluateScript(self, _cmd, modifiedScript, pageID, dest, completion);
     g_inHook = NO;
 }
-
-#pragma mark - ========== 启用所有 Hook ==========
+#pragma mark - ========== 启用所有 Hook 入口机制 ==========
 
 - (void)enableAllHooks {
     [[LogWindowManager sharedInstance] appendLog:@"🚀 开始启用用户指定的类方法 Hook..."];
@@ -1336,7 +1289,7 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
                 } else {
                     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask = (void (*)(id, SEL, WKWebView *, id))method_getImplementation(method);
                     method_setImplementation(method, (IMP)hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask);
-                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler webView:startURLSchemeTask: Hook 成功 [支持响应数据拦截]"];
+                    [batchLogs addObject:@"✅ BDPWKURLSchemeHandler webView:startURLSchemeTask: Hook 成功 [支持响应数据现场URL提取]"];
                     successCount++;
                 }
             }
@@ -1475,31 +1428,9 @@ static void hook_BDPWKGameBusinessEngine_evaluateScript(id self, SEL _cmd, id sc
     });
 }
 
-- (void)handlePan:(UIPanGestureRecognizer *)gesture {
-    UIView *button = gesture.view;
-    CGPoint translation = [gesture translationInView:button.superview];
-    button.center = CGPointMake(button.center.x + translation.x, button.center.y + translation.y);
-    [gesture setTranslation:CGPointZero inView:button.superview];
-}
-
-- (void)hideFloatingButton {
-    [self dismissMenuPanel];
-    [self.keepOnTopTimer invalidate];
-    self.keepOnTopTimer = nil;
-    [self.floatingButton removeFromSuperview];
-    self.floatingButton = nil;
-    self.lastWindow = nil;
-}
-
-- (UIViewController *)topViewControllerFromWindow:(UIWindow *)window {
-    UIViewController *topVC = window.rootViewController;
-    while (topVC.presentedViewController) {
-        topVC = topVC.presentedViewController;
-    }
-    return topVC;
-}
-
 @end
+
+#pragma mark - ========== 应用构造器启动注入入口 ==========
 
 __attribute__((constructor))
 static void init() {

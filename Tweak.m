@@ -921,7 +921,7 @@
 }
 
 - (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='tweak://log?msg=hellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohellohello'";
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {

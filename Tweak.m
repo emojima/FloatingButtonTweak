@@ -852,7 +852,7 @@
 }
 
 - (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tt.setClipboardData({data:'test-hello',success:function(e){},fail:function(e){}})";
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tt.showModal({title:'更新提示1',content:'新版本已经准备好，是否重启小游戏？',showCancel:!1,success:function(t){}})";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {

@@ -12,6 +12,8 @@
 @property (nonatomic, assign) int totalHookedMethods;
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
+@property (nonatomic, assign) BOOL enableJSConsoleCapture;
+@property (nonatomic, assign) BOOL enableJSInject;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -447,6 +449,8 @@
         _totalReplacedCount = 0;
         _totalHookedMethods = 0;
         _currentMenuAlert = nil;
+        _enableJSConsoleCapture = NO;
+        _enableJSInject = NO;
         [self setupGlobalWakeGesture];
     }
     return self;
@@ -659,6 +663,24 @@
     sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
     [panel addSubview:sep1];
 
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"🌐"
+                      title:@"JS Console 捕获"
+                   subtitle:self.enableJSConsoleCapture ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableJSConsoleCapture
+                      tag:1004];
+    yOffset += rowHeight;
+
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"💉"
+                      title:@"JS 自动注入"
+                   subtitle:self.enableJSInject ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableJSInject
+                      tag:1005];
+    yOffset += rowHeight;
+
     NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
     [self addActionRowToPanel:panel
                           y:yOffset
@@ -790,6 +812,22 @@
             [self updateMenuSubtitleForTag:1003 text:newState ? @"当前：已开启" : @"当前：已关闭"];
             break;
         }
+        case 1004: {
+            self.enableJSConsoleCapture = !self.enableJSConsoleCapture;
+            [self updateMenuSubtitleForTag:1004 text:self.enableJSConsoleCapture ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"🌐 JS Console 捕获已%@", self.enableJSConsoleCapture ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
+        case 1005: {
+            self.enableJSInject = !self.enableJSInject;
+            [self updateMenuSubtitleForTag:1005 text:self.enableJSInject ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"💉 JS 自动注入已%@", self.enableJSInject ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -851,8 +889,20 @@
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
+- (NSString *)jsInjectCode {
+    return @"function tweakLog(message) { var encoded = encodeURIComponent(message); var img = new Image(); img.src = 'tweak://log?msg=' + encoded; } var originalLog = console.log; console.log = function() { var args = Array.prototype.slice.call(arguments); var msg = args.map(function(a) { try { return JSON.stringify(a); } catch(e) { return String(a); } }).join(' '); tweakLog(msg); originalLog.apply(console, arguments); };";
+}
+
+- (NSString *)jsInjectMarker {
+    return @"__tt_define__(\"subpackages/main/game.js\"";
+}
+
+- (NSString *)jsInjectReplacement {
+    return [NSString stringWithFormat:@"%@%@", [self jsInjectCode], [self jsInjectMarker]];
+}
+
 - (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tt.showModal({title:'更新提示1',content:'新版本已经准备好，是否重启小游戏？',showCancel:!1,success:function(t){}})";
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {
@@ -872,19 +922,38 @@
 
 - (NSString *)replaceTargetInString:(NSString *)string {
     if (!string || string.length < 20) return string;
+    NSString *result = string;
+
+    // 1. 原有的字符串替换逻辑
     NSString *target = [self targetKeyword];
     NSString *replacement = [self replacementString];
-    if ([string containsString:target]) {
-        NSString *modified = [string stringByReplacingOccurrencesOfString:target withString:replacement];
-        if (![modified isEqualToString:string]) {
+    if ([result containsString:target]) {
+        NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
+        if (![modified isEqualToString:result]) {
             self.totalReplacedCount++;
             NSString *log = [NSString stringWithFormat:@"✅ NSString 替换成功 (第 %d 次)", self.totalReplacedCount];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
-            return modified;
+            result = modified;
         }
     }
-    return string;
+
+    // 2. JS 注入逻辑：对 game.js 注入 console 劫持代码
+    if (self.enableJSInject) {
+        NSString *marker = [self jsInjectMarker];
+        if ([result containsString:marker]) {
+            NSString *injectCode = [self jsInjectReplacement];
+            NSString *modified = [result stringByReplacingOccurrencesOfString:marker withString:injectCode];
+            if (![modified isEqualToString:result]) {
+                NSString *log = @"🌐 JS 注入成功: subpackages/main/game.js";
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                result = modified;
+            }
+        }
+    }
+
+    return result;
 }
 
 - (NSData *)replaceTargetInData:(NSData *)data {
@@ -995,7 +1064,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         method_setImplementation(didReceiveResponseMethod, newDidReceiveResponse);
     }
 
-    // 2. Hook didReceiveData: 处理并记录日志
+    // 2. Hook didReceiveData: 处理并记录日志（含 tweak://log 拦截）
     SEL didReceiveDataSel = NSSelectorFromString(@"didReceiveData:");
     Method didReceiveDataMethod = class_getInstanceMethod(taskClass, didReceiveDataSel);
     if (didReceiveDataMethod) {
@@ -1008,6 +1077,29 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 if (req && req.URL) {
                     taskUrl = [req.URL absoluteString];
                 }
+            }
+
+            // ========== 拦截 tweak://log URL Scheme 消息 ==========
+            if ([taskUrl hasPrefix:@"tweak://log"]) {
+                if ([[FloatingButtonManager sharedInstance] enableJSConsoleCapture]) {
+                    NSURLComponents *components = [NSURLComponents componentsWithString:taskUrl];
+                    NSString *msg = nil;
+                    for (NSURLQueryItem *item in components.queryItems) {
+                        if ([item.name isEqualToString:@"msg"]) {
+                            msg = item.value;
+                            break;
+                        }
+                    }
+                    if (msg && msg.length > 0) {
+                        NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
+                        NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
+                        NSLog(@"[Tweak] %@", jsLog);
+                        [[LogWindowManager sharedInstance] appendLog:jsLog];
+                        [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
+                    }
+                }
+                // 拦截 tweak://log 请求，不继续传递给原始实现，避免影响页面
+                return;
             }
 
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
@@ -1096,6 +1188,32 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     }
 
     hookURLSchemeTask(urlSchemeTask);
+
+    // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
+    if ([urlStr hasPrefix:@"tweak://log"]) {
+        if ([[FloatingButtonManager sharedInstance] enableJSConsoleCapture]) {
+            NSURLComponents *components = [NSURLComponents componentsWithString:urlStr];
+            NSString *msg = nil;
+            for (NSURLQueryItem *item in components.queryItems) {
+                if ([item.name isEqualToString:@"msg"]) {
+                    msg = item.value;
+                    break;
+                }
+            }
+            if (msg && msg.length > 0) {
+                NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
+                NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
+                NSLog(@"[Tweak] %@", jsLog);
+                [[LogWindowManager sharedInstance] appendLog:jsLog];
+                [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
+            }
+        }
+        NSString *log = [NSString stringWithFormat:@"🌐 [拦截] tweak://log URL=%@", urlStr];
+        NSLog(@"[Tweak] %@", log);
+        [[LogWindowManager sharedInstance] appendLog:log];
+        g_inHook = NO;
+        return;  // 直接返回，不调用原始实现
+    }
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 

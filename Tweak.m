@@ -203,8 +203,11 @@
 
     self.logContainerView.hidden = NO;
     self.isVisible = YES;
-    // 显示日志窗口后自动关闭功能面板
-    [[FloatingButtonManager sharedInstance] dismissMenuPanel];
+    // 显示日志窗口后自动关闭功能面板（仅在面板已打开时）
+    UIWindow *kw2 = [self topmostWindow];
+    if (kw2 && [kw2 viewWithTag:99997]) {
+        [[FloatingButtonManager sharedInstance] dismissMenuPanel];
+    }
 }
 
 - (void)hideLogWindow {
@@ -572,8 +575,8 @@
 - (void)buttonTapped:(UIButton *)sender {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-    UIView *existingPanel = [keyWindow viewWithTag:99998];
-    if (existingPanel) {
+    UIView *existingScrollPanel = [keyWindow viewWithTag:99997];
+    if (existingScrollPanel) {
         [self dismissMenuPanel];
     } else {
         [self showCustomMenuPanel];
@@ -596,20 +599,32 @@
     [overlayView addGestureRecognizer:tapOverlay];
 
     CGFloat panelWidth = 320;
-    CGFloat panelHeight = 420;
+    CGFloat maxPanelHeight = keyWindow.bounds.size.height * 0.75;
     CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
-    CGFloat panelY = (keyWindow.bounds.size.height - panelHeight) / 2;
+    CGFloat panelY = (keyWindow.bounds.size.height - maxPanelHeight) / 2;
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, panelHeight)];
+    // 创建 UIScrollView 作为面板容器，支持滚动
+    UIScrollView *scrollPanel = [[UIScrollView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, maxPanelHeight)];
+    scrollPanel.backgroundColor = [UIColor clearColor];
+    scrollPanel.layer.cornerRadius = 16;
+    scrollPanel.layer.masksToBounds = YES;
+    scrollPanel.tag = 99997;
+    scrollPanel.alpha = 0;
+    scrollPanel.showsVerticalScrollIndicator = YES;
+    scrollPanel.alwaysBounceVertical = YES;
+    [keyWindow addSubview:scrollPanel];
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 520)];
     panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
     panel.layer.cornerRadius = 16;
     panel.layer.masksToBounds = YES;
     panel.layer.borderWidth = 1;
     panel.layer.borderColor = [UIColor colorWithRed:0.3 green:0.3 blue:0.35 alpha:1.0].CGColor;
     panel.tag = 99998;
-    panel.alpha = 0;
-    panel.transform = CGAffineTransformMakeScale(0.9, 0.9);
-    [keyWindow addSubview:panel];
+    [scrollPanel addSubview:panel];
+
+    // 设置 contentSize 让 scrollView 可以滚动
+    scrollPanel.contentSize = CGSizeMake(panelWidth, 520);
 
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
@@ -716,8 +731,8 @@
 
     [UIView animateWithDuration:0.25 animations:^{
         overlayView.alpha = 1;
-        panel.alpha = 1;
-        panel.transform = CGAffineTransformIdentity;
+        scrollPanel.alpha = 1;
+        scrollPanel.transform = CGAffineTransformIdentity;
     }];
 }
 
@@ -834,7 +849,9 @@
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-    UIView *panel = [keyWindow viewWithTag:99998];
+    UIScrollView *scrollPanel = [keyWindow viewWithTag:99997];
+    if (!scrollPanel) return;
+    UIView *panel = [scrollPanel viewWithTag:99998];
     if (!panel) return;
     UIView *row = [panel viewWithTag:tag];
     if (!row) return;
@@ -871,14 +888,16 @@
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
     UIView *overlay = [keyWindow viewWithTag:99999];
+    UIScrollView *scrollPanel = [keyWindow viewWithTag:99997];
     UIView *panel = [keyWindow viewWithTag:99998];
 
     [UIView animateWithDuration:0.2 animations:^{
         overlay.alpha = 0;
-        panel.alpha = 0;
-        panel.transform = CGAffineTransformMakeScale(0.9, 0.9);
+        scrollPanel.alpha = 0;
+        scrollPanel.transform = CGAffineTransformMakeScale(0.9, 0.9);
     } completion:^(BOOL finished) {
         [overlay removeFromSuperview];
+        [scrollPanel removeFromSuperview];
         [panel removeFromSuperview];
     }];
 }
@@ -902,7 +921,7 @@
 }
 
 - (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('tweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLogtweakLog')";
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {

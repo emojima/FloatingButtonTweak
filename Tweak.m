@@ -9,12 +9,14 @@
 @property (nonatomic, strong) NSTimer *keepOnTopTimer;
 @property (nonatomic, weak) UIWindow *lastWindow;
 @property (nonatomic, assign) int totalReplacedCount;
+@property (nonatomic, assign) int totalReplacedCount2; // 🔥 新增：概率替换计数
 @property (nonatomic, assign) int totalHookedMethods;
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableJSConsoleCapture;
 @property (nonatomic, assign) BOOL enableJSInject;
 @property (nonatomic, assign) BOOL enableAdFreeRefresh;
+@property (nonatomic, assign) BOOL enableRefreshRate; // 🔥 新增：增加刷新属性词条概率开关
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -25,6 +27,8 @@
 - (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url;
 - (NSString *)targetKeyword;
 - (NSString *)targetURLPattern;
+- (NSString *)refreshRatePattern; // 🔥 新增：概率正则模式
+- (NSString *)refreshRateReplacement; // 🔥 新增：概率替换字符串
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
@@ -205,7 +209,6 @@
 
     self.logContainerView.hidden = NO;
     self.isVisible = YES;
-    // 显示日志窗口后自动关闭功能面板（仅在面板已打开时）
     UIWindow *kw2 = [self topmostWindow];
     if (kw2 && [kw2 viewWithTag:99996]) {
         [[FloatingButtonManager sharedInstance] dismissMenuPanel];
@@ -216,7 +219,6 @@
     self.logContainerView.hidden = YES;
     self.isVisible = NO;
     [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:@"当前：已隐藏"];
-    // 同步更新功能面板中开关按钮的 UI 状态
     UIWindow *keyWindow = [[FloatingButtonManager sharedInstance] topmostWindow];
     if (keyWindow) {
         UIView *dragContainer = [keyWindow viewWithTag:99996];
@@ -461,11 +463,13 @@
     self = [super init];
     if (self) {
         _totalReplacedCount = 0;
+        _totalReplacedCount2 = 0; // 🔥 初始化概率替换计数
         _totalHookedMethods = 0;
         _currentMenuAlert = nil;
         _enableJSConsoleCapture = NO;
         _enableJSInject = NO;
         _enableAdFreeRefresh = NO;
+        _enableRefreshRate = NO; // 🔥 默认关闭
         [self setupGlobalWakeGesture];
     }
     return self;
@@ -603,27 +607,23 @@
     UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
 
-    // ========== 创建可拖动的面板容器 ==========
     CGFloat panelWidth = 320;
     CGFloat panelHeight = 520;
     CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
     CGFloat panelY = (keyWindow.bounds.size.height - panelHeight) / 2;
 
-    // 外层容器：支持拖动和手势
     UIView *dragContainer = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, panelHeight)];
     dragContainer.backgroundColor = [UIColor clearColor];
-    dragContainer.tag = 99996; // 拖动容器tag
+    dragContainer.tag = 99996;
     dragContainer.layer.shadowColor = [UIColor blackColor].CGColor;
     dragContainer.layer.shadowOffset = CGSizeMake(0, 8);
     dragContainer.layer.shadowRadius = 16;
     dragContainer.layer.shadowOpacity = 0.4;
     [keyWindow addSubview:dragContainer];
 
-    // 添加拖动手势到整个面板
     UIPanGestureRecognizer *dragGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanelDrag:)];
     [dragContainer addGestureRecognizer:dragGesture];
 
-    // 半透明遮罩层（点击关闭）
     UIView *overlayView = [[UIView alloc] initWithFrame:keyWindow.bounds];
     overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.35];
     overlayView.tag = 99999;
@@ -633,7 +633,6 @@
     UITapGestureRecognizer *tapOverlay = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissMenuPanel)];
     [overlayView addGestureRecognizer:tapOverlay];
 
-    // ========== 主面板（圆角+背景） ==========
     UIView *panel = [[UIView alloc] initWithFrame:dragContainer.bounds];
     panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
     panel.layer.cornerRadius = 16;
@@ -643,13 +642,11 @@
     panel.tag = 99998;
     [dragContainer addSubview:panel];
 
-    // ========== 标题栏（可拖动区域） ==========
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
-    titleBar.tag = 99995; // 标题栏tag，用于识别拖动区域
+    titleBar.tag = 99995;
     [panel addSubview:titleBar];
 
-    // 标题栏拖动指示条（视觉提示）
     UIView *dragIndicator = [[UIView alloc] initWithFrame:CGRectMake((panelWidth - 40) / 2, 6, 40, 4)];
     dragIndicator.backgroundColor = [UIColor colorWithRed:0.5 green:0.5 blue:0.55 alpha:0.6];
     dragIndicator.layer.cornerRadius = 2;
@@ -670,7 +667,6 @@
     [closeBtn addTarget:self action:@selector(dismissMenuPanel) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:closeBtn];
 
-    // ========== 可滚动内容区域 ==========
     CGFloat contentTop = 48;
     CGFloat contentHeight = panelHeight - contentTop;
     UIScrollView *scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, contentTop, panelWidth, contentHeight)];
@@ -680,7 +676,6 @@
     scrollView.tag = 99997;
     [panel addSubview:scrollView];
 
-    // 内容容器
     UIView *contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 0)];
     contentView.backgroundColor = [UIColor clearColor];
     [scrollView addSubview:contentView];
@@ -737,7 +732,11 @@
                    subtitle:self.enableJSInject ? @"当前：已开启" : @"当前：已关闭"
                     isOn:self.enableJSInject
                       tag:1005];
-    yOffset += rowHeight;
+    yOffset += rowHeight + 8;
+
+    UIView *sepJS = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sepJS.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [contentView addSubview:sepJS];
 
     // --- 免广告刷新属性词条 ---
     NSString *adFreeStatus = self.enableAdFreeRefresh ?
@@ -750,6 +749,19 @@
                    subtitle:adFreeStatus
                     isOn:self.enableAdFreeRefresh
                       tag:1006];
+    yOffset += rowHeight;
+
+    // 🔥 新增：增加刷新属性词条概率
+    NSString *rateStatus = self.enableRefreshRate ?
+        (self.totalReplacedCount2 > 0 ? [NSString stringWithFormat:@"已生效 %d 次", self.totalReplacedCount2] : @"已开启")
+        : @"当前：已关闭";
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"🎯"
+                      title:@"增加刷新属性词条概率"
+                   subtitle:rateStatus
+                    isOn:self.enableRefreshRate
+                      tag:1007];
     yOffset += rowHeight + 8;
 
     UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
@@ -782,11 +794,9 @@
     [contentView addSubview:hideFloatBtn];
     yOffset += 44 + 16;
 
-    // 设置内容高度和滚动范围
     contentView.frame = CGRectMake(0, 0, panelWidth, yOffset);
     scrollView.contentSize = CGSizeMake(panelWidth, yOffset);
 
-    // 入场动画
     dragContainer.alpha = 0;
     dragContainer.transform = CGAffineTransformMakeScale(0.9, 0.9);
     [UIView animateWithDuration:0.25 animations:^{
@@ -807,7 +817,6 @@
         center.x += translation.x;
         center.y += translation.y;
 
-        // 限制在屏幕范围内
         CGFloat halfW = dragContainer.bounds.size.width / 2;
         CGFloat halfH = dragContainer.bounds.size.height / 2;
         CGFloat screenW = dragContainer.superview.bounds.size.width;
@@ -939,6 +948,18 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        // 🔥 新增：增加刷新属性词条概率开关处理
+        case 1007: {
+            self.enableRefreshRate = !self.enableRefreshRate;
+            NSString *statusText = self.enableRefreshRate ?
+                (self.totalReplacedCount2 > 0 ? [NSString stringWithFormat:@"已生效 %d 次", self.totalReplacedCount2] : @"已开启")
+                : @"当前：已关闭";
+            [self updateMenuSubtitleForTag:1007 text:statusText];
+            NSString *log = [NSString stringWithFormat:@"🎯 增加刷新属性词条概率已%@", self.enableRefreshRate ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -1004,6 +1025,16 @@
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
+// 🔥 新增：刷新概率正则匹配模式
+- (NSString *)refreshRatePattern {
+    return @"(\"SQRefreshCfg\",\\[\\{rarity:\\w\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\])";
+}
+
+// 🔥 新增：刷新概率替换字符串
+- (NSString *)refreshRateReplacement {
+    return @"(\"SQRefreshCfg\",[{rarity:a[\"优秀\"],weight:1},{rarity:a[\"精良\"],weight:5},{rarity:a[\"史诗\"],weight:50},{rarity:a[\"神器\"],weight:100}])";
+}
+
 - (NSString *)jsInjectCode {
     return @"function tweakLog(message) { var encoded = encodeURIComponent(message); var img = new Image(); img.src = 'tweak://log?msg=' + encoded; } var originalLog = console.log; console.log = function() { var args = Array.prototype.slice.call(arguments); var msg = args.map(function(a) { try { return JSON.stringify(a); } catch(e) { return String(a); } }).join(' '); tweakLog(msg); originalLog.apply(console, arguments); };";
 }
@@ -1038,10 +1069,6 @@
 - (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url {
     if (!string || string.length < 20) return string;
 
-    if (!self.enableAdFreeRefresh) {
-        return string;
-    }
-
     NSString *targetURL = [self targetURLPattern];
     if (!url || ![url isEqualToString:targetURL]) {
         return string;
@@ -1049,19 +1076,40 @@
 
     NSString *result = string;
 
-    NSString *target = [self targetKeyword];
-    NSString *replacement = [self replacementString];
-    if ([result containsString:target]) {
-        NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
-        if (![modified isEqualToString:result]) {
-            self.totalReplacedCount++;
-            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount, url];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            result = modified;
+    // 1. 免广告刷新属性词条替换
+    if (self.enableAdFreeRefresh) {
+        NSString *target = [self targetKeyword];
+        NSString *replacement = [self replacementString];
+        if ([result containsString:target]) {
+            NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
+            if (![modified isEqualToString:result]) {
+                self.totalReplacedCount++;
+                NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount, url];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                result = modified;
+            }
         }
     }
 
+    // 🔥 2. 增加刷新属性词条概率（正则匹配替换）
+    if (self.enableRefreshRate) {
+        NSString *pattern = [self refreshRatePattern];
+        NSString *replacement = [self refreshRateReplacement];
+        NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+        if (regex) {
+            NSString *modified = [regex stringByReplacingMatchesInString:result options:0 range:NSMakeRange(0, result.length) withTemplate:replacement];
+            if (![modified isEqualToString:result]) {
+                self.totalReplacedCount2++;
+                NSString *log = [NSString stringWithFormat:@"🎯 增加刷新属性词条概率替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount2, url];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                result = modified;
+            }
+        }
+    }
+
+    // 3. JS 注入逻辑
     if (self.enableJSInject) {
         NSString *marker = [self jsInjectMarker];
         if ([result containsString:marker]) {
@@ -1082,10 +1130,6 @@
 - (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)url {
     if (!data || data.length < 20) return data;
 
-    if (!self.enableAdFreeRefresh) {
-        return data;
-    }
-
     NSString *targetURL = [self targetURLPattern];
     if (!url || ![url isEqualToString:targetURL]) {
         return data;
@@ -1101,8 +1145,8 @@
     if (![modified isEqualToString:str]) {
         NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
         if (newData) {
-            NSString *log = [NSString stringWithFormat:@"🎮 NSData 替换成功 (第 %d 次) | URL=%@ | 原长度:%lu -> 新长度:%lu",
-                           self.totalReplacedCount, url, (unsigned long)data.length, (unsigned long)newData.length];
+            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 | URL=%@ | 原长度:%lu -> 新长度:%lu",
+                           url, (unsigned long)data.length, (unsigned long)newData.length];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             return newData;
@@ -1184,7 +1228,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         [hookedClasses addObject:clsName];
     }
 
-    // 1. Hook didReceiveResponse: 捕获 Content-Type
     SEL didReceiveResponseSel = NSSelectorFromString(@"didReceiveResponse:");
     Method didReceiveResponseMethod = class_getInstanceMethod(taskClass, didReceiveResponseSel);
     if (didReceiveResponseMethod) {
@@ -1209,7 +1252,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         method_setImplementation(didReceiveResponseMethod, newDidReceiveResponse);
     }
 
-    // 2. Hook didReceiveData: 处理并记录日志（含 tweak://log 拦截）
     SEL didReceiveDataSel = NSSelectorFromString(@"didReceiveData:");
     Method didReceiveDataMethod = class_getInstanceMethod(taskClass, didReceiveDataSel);
     if (didReceiveDataMethod) {
@@ -1224,7 +1266,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 }
             }
 
-            // ========== 拦截 tweak://log URL Scheme 消息 ==========
             if ([taskUrl hasPrefix:@"tweak://log"]) {
                 if ([[FloatingButtonManager sharedInstance] enableJSConsoleCapture]) {
                     NSURLComponents *components = [NSURLComponents componentsWithString:taskUrl];
@@ -1243,7 +1284,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                         [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
                     }
                 }
-                // 拦截 tweak://log 请求，不继续传递给原始实现，避免影响页面
                 return;
             }
 
@@ -1289,7 +1329,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         method_setImplementation(didReceiveDataMethod, newDidReceiveData);
     }
 
-    // 3. Hook didFinish
     SEL didFinishSel = NSSelectorFromString(@"didFinish");
     Method didFinishMethod = class_getInstanceMethod(taskClass, didFinishSel);
     if (didFinishMethod) {
@@ -1301,7 +1340,6 @@ static void hookURLSchemeTask(id urlSchemeTask) {
         method_setImplementation(didFinishMethod, newDidFinish);
     }
 
-    // 4. Hook didFailWithError:
     SEL didFailSel = NSSelectorFromString(@"didFailWithError:");
     Method didFailMethod = class_getInstanceMethod(taskClass, didFailSel);
     if (didFailMethod) {
@@ -1334,7 +1372,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
 
     hookURLSchemeTask(urlSchemeTask);
 
-    // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
     if ([urlStr hasPrefix:@"tweak://log"]) {
         if ([[FloatingButtonManager sharedInstance] enableJSConsoleCapture]) {
             NSURLComponents *components = [NSURLComponents componentsWithString:urlStr];
@@ -1357,7 +1394,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
         g_inHook = NO;
-        return;  // 直接返回，不调用原始实现
+        return;
     }
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];

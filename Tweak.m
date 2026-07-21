@@ -976,28 +976,28 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"优秀\"\\],weight:\\d+",
-                @"replacement": @"[\"优秀\"],weight:1",
+                @"replacement": @"[\"优秀\"],weight:0",
                 @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"精良\"\\],weight:\\d+",
-                @"replacement": @"[\"精良\"],weight:500",
+                @"replacement": @"[\"精良\"],weight:20",
                 @"useRegex": @YES
             },            
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"史诗\"\\],weight:\\d+",
-                @"replacement": @"[\"史诗\"],weight:500",
+                @"replacement": @"[\"史诗\"],weight:30",
                 @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"神器\"\\],weight:\\d+",
-                @"replacement": @"[\"神器\"],weight:1000",
+                @"replacement": @"[\"神器\"],weight:50",
                 @"useRegex": @YES
             }
         ]
@@ -1012,7 +1012,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
-                @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
+                @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:1000",
                 @"useRegex": @YES
             }
         ]

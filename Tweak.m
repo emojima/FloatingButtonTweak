@@ -952,9 +952,9 @@
     // 规则1：免广告刷新属性词条
     [self.urlReplacementRules addObject:@{
         @"name": @"免广告刷新属性词条",
-        @"urlPattern": @"bdpfile://bd\.timor\.wk/bdpbase/bdpdir/2/subpackages/main/game\.js",
+        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/bdpbase/bdpdir/2/subpackages/main/game\\.js",
         @"urlIsRegex": @YES,
-        @"contentPattern": @"\.curLevel\)\?this\.freeRefreshNum=2:this\.freeRefreshNum=0",
+        @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
         @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
         @"useRegex": @YES,
         @"enabledKey": @"enableAdFreeRefresh"
@@ -971,31 +971,35 @@
         BOOL enabled = [[self valueForKey:enabledKey] boolValue];
         if (!enabled) continue;
 
-        // URL匹配（支持正则或普通包含匹配）
+        // ========== 1. URL 匹配 ==========
         NSString *urlPattern = rule[@"urlPattern"];
         BOOL urlIsRegex = [rule[@"urlIsRegex"] boolValue];
         BOOL urlMatched = NO;
 
         if (urlIsRegex) {
+            // 正则匹配 URL
             NSRegularExpression *urlRegex = [NSRegularExpression regularExpressionWithPattern:urlPattern options:0 error:nil];
             NSUInteger matchCount = [urlRegex numberOfMatchesInString:urlString options:0 range:NSMakeRange(0, urlString.length)];
             urlMatched = (matchCount > 0);
         } else {
+            // 普通字符串包含匹配 URL
             urlMatched = [urlString containsString:urlPattern];
         }
 
         if (!urlMatched) continue;
 
-        // 内容匹配和替换（支持正则或普通字符串替换）
+        // ========== 2. 内容替换（正则 vs 普通字符串分开处理）==========
         NSString *contentPattern = rule[@"contentPattern"];
         NSString *replacement = rule[@"replacement"];
         BOOL useRegex = [rule[@"useRegex"] boolValue];
         NSString *modified = nil;
 
         if (useRegex) {
+            // 正则替换
             NSRegularExpression *contentRegex = [NSRegularExpression regularExpressionWithPattern:contentPattern options:0 error:nil];
             modified = [contentRegex stringByReplacingMatchesInString:result options:0 range:NSMakeRange(0, result.length) withTemplate:replacement];
         } else {
+            // 普通字符串替换
             if ([result containsString:contentPattern]) {
                 modified = [result stringByReplacingOccurrencesOfString:contentPattern withString:replacement];
             }

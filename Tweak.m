@@ -677,24 +677,6 @@
 
     [self addSwitchRowToPanel:panel
                          y:yOffset
-                       icon:@"🌐"
-                      title:@"JS Console 捕获"
-                   subtitle:self.enableJSConsoleCapture ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:self.enableJSConsoleCapture
-                      tag:1004];
-    yOffset += rowHeight;
-
-    [self addSwitchRowToPanel:panel
-                         y:yOffset
-                       icon:@"💉"
-                      title:@"JS 自动注入"
-                   subtitle:self.enableJSInject ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:self.enableJSInject
-                      tag:1005];
-    yOffset += rowHeight;
-
-    [self addSwitchRowToPanel:panel
-                         y:yOffset
                        icon:@"🎮"
                       title:@"免广告刷新属性词条"
                    subtitle:self.enableAdFreeRefresh ? @"当前：已开启" : @"当前：已关闭"
@@ -1022,21 +1004,6 @@
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             result = modified;
-        }
-    }
-
-    // 2. JS 注入逻辑：对 game.js 注入 console 劫持代码
-    if (self.enableJSInject) {
-        NSString *marker = [self jsInjectMarker];
-        if ([result containsString:marker]) {
-            NSString *injectCode = [self jsInjectReplacement];
-            NSString *modified = [result stringByReplacingOccurrencesOfString:marker withString:injectCode];
-            if (![modified isEqualToString:result]) {
-                NSString *log = @"🌐 JS 注入成功: subpackages/main/game.js";
-                NSLog(@"[Tweak] %@", log);
-                [[LogWindowManager sharedInstance] appendLog:log];
-                result = modified;
-            }
         }
     }
 

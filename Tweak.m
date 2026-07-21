@@ -215,14 +215,17 @@
     // 同步更新功能面板中开关按钮的 UI 状态
     UIWindow *keyWindow = [[FloatingButtonManager sharedInstance] topmostWindow];
     if (keyWindow) {
-        UIView *panel = [keyWindow viewWithTag:99998];
-        if (panel) {
-            UIView *row = [panel viewWithTag:1001];
-            if (row) {
-                for (UIView *sub in row.subviews) {
-                    if ([sub isKindOfClass:[UISwitch class]]) {
-                        ((UISwitch *)sub).on = NO;
-                        break;
+        UIView *panelContainer = [keyWindow viewWithTag:99997];
+        if (panelContainer) {
+            UIView *contentView = [panelContainer viewWithTag:99998];
+            if (contentView) {
+                UIView *row = [contentView viewWithTag:1001];
+                if (row) {
+                    for (UIView *sub in row.subviews) {
+                        if ([sub isKindOfClass:[UISwitch class]]) {
+                            ((UISwitch *)sub).on = NO;
+                            break;
+                        }
                     }
                 }
             }
@@ -603,38 +606,29 @@
     CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
     CGFloat panelY = (keyWindow.bounds.size.height - maxPanelHeight) / 2;
 
-    // 创建 UIScrollView 作为面板容器，支持滚动
-    UIScrollView *scrollPanel = [[UIScrollView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, maxPanelHeight)];
-    scrollPanel.backgroundColor = [UIColor clearColor];
-    scrollPanel.layer.cornerRadius = 16;
-    scrollPanel.layer.masksToBounds = YES;
-    scrollPanel.tag = 99997;
-    scrollPanel.alpha = 0;
-    scrollPanel.showsVerticalScrollIndicator = YES;
-    scrollPanel.alwaysBounceVertical = YES;
-    [keyWindow addSubview:scrollPanel];
+    // 外层容器：整个面板，可拖动
+    UIView *panelContainer = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, maxPanelHeight)];
+    panelContainer.backgroundColor = [UIColor clearColor];
+    panelContainer.layer.cornerRadius = 16;
+    panelContainer.layer.masksToBounds = YES;
+    panelContainer.tag = 99997;
+    panelContainer.alpha = 0;
+    [keyWindow addSubview:panelContainer];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 480)];
-    panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
-    panel.layer.cornerRadius = 16;
-    panel.layer.masksToBounds = YES;
-    panel.layer.borderWidth = 1;
-    panel.layer.borderColor = [UIColor colorWithRed:0.3 green:0.3 blue:0.35 alpha:1.0].CGColor;
-    panel.tag = 99998;
-    [scrollPanel addSubview:panel];
-
+    // 标题栏：固定在顶部，不参与滚动
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
-    [panel addSubview:titleBar];
+    [panelContainer addSubview:titleBar];
 
     // 标题栏拖动手势：按住标题栏可自由拖动整个面板
     UIPanGestureRecognizer *titlePan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanelTitleBarPan:)];
     [titleBar addGestureRecognizer:titlePan];
 
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
+    // 标题Label：缩小宽度避免和关闭按钮重叠
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, panelWidth - 60, 48)];
     titleLabel.text = @"🛠️ Tweak 功能面板（按住标题栏拖动）";
     titleLabel.textColor = [UIColor whiteColor];
-    titleLabel.font = [UIFont boldSystemFontOfSize:17];
+    titleLabel.font = [UIFont boldSystemFontOfSize:16];
     titleLabel.textAlignment = NSTextAlignmentCenter;
     [titleBar addSubview:titleLabel];
 
@@ -646,9 +640,21 @@
     [closeBtn addTarget:self action:@selector(dismissMenuPanel) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:closeBtn];
 
-    CGFloat yOffset = 64;
+    // 内容滚动区域：只滚动功能列表，标题栏固定不动
+    UIScrollView *contentScroll = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 48, panelWidth, maxPanelHeight - 48)];
+    contentScroll.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
+    contentScroll.showsVerticalScrollIndicator = YES;
+    contentScroll.alwaysBounceVertical = YES;
+    [panelContainer addSubview:contentScroll];
+
+    UIView *contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 480)];
+    contentView.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
+    contentView.tag = 99998;
+    [contentScroll addSubview:contentView];
+
+    CGFloat yOffset = 16;
     CGFloat rowHeight = 56;
-    [self addSwitchRowToPanel:panel
+    [self addSwitchRowToPanel:contentView
                          y:yOffset
                        icon:@"📋"
                       title:@"日志窗口显示"
@@ -657,7 +663,7 @@
                       tag:1001];
     yOffset += rowHeight;
 
-    [self addSwitchRowToPanel:panel
+    [self addSwitchRowToPanel:contentView
                          y:yOffset
                        icon:@"📝"
                       title:@"日志输出到屏幕"
@@ -666,7 +672,7 @@
                       tag:1002];
     yOffset += rowHeight;
 
-    [self addSwitchRowToPanel:panel
+    [self addSwitchRowToPanel:contentView
                          y:yOffset
                        icon:@"📁"
                       title:@"日志写入文件"
@@ -677,9 +683,9 @@
 
     UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
     sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [panel addSubview:sep1];
+    [contentView addSubview:sep1];
 
-    [self addSwitchRowToPanel:panel
+    [self addSwitchRowToPanel:contentView
                          y:yOffset
                        icon:@"🎮"
                       title:@"免广告刷新属性词条"
@@ -688,7 +694,7 @@
                       tag:1006];
     yOffset += rowHeight;
 
-    [self addSwitchRowToPanel:panel
+    [self addSwitchRowToPanel:contentView
                          y:yOffset
                        icon:@"💰"
                       title:@"示例：无限金币"
@@ -697,7 +703,7 @@
                       tag:1007];
     yOffset += rowHeight;
 
-    [self addActionRowToPanel:panel
+    [self addActionRowToPanel:contentView
                           y:yOffset
                         icon:@"📂"
                        title:@"日志文件路径"
@@ -708,7 +714,7 @@
 
     UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
     sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [panel addSubview:sep2];
+    [contentView addSubview:sep2];
 
     UIButton *hideFloatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     hideFloatBtn.frame = CGRectMake(16, yOffset, panelWidth - 32, 44);
@@ -718,19 +724,19 @@
     [hideFloatBtn setTitle:@"❌ 关闭悬浮窗 (可双指长按2秒还原)" forState:UIControlStateNormal];
     hideFloatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
     [hideFloatBtn addTarget:self action:@selector(hideFloatingButtonFromMenu) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:hideFloatBtn];
+    [contentView addSubview:hideFloatBtn];
 
     yOffset += 44 + 16; // 按钮高度 + 底部间距
 
-    // 动态设置 panel 高度和 scrollView contentSize，支持内容过多时上下滚动
+    // 动态设置内容高度，支持内容过多时上下滚动
     CGFloat contentHeight = yOffset;
-    panel.frame = CGRectMake(0, 0, panelWidth, contentHeight);
-    scrollPanel.contentSize = CGSizeMake(panelWidth, contentHeight);
+    contentView.frame = CGRectMake(0, 0, panelWidth, contentHeight);
+    contentScroll.contentSize = CGSizeMake(panelWidth, contentHeight);
 
     [UIView animateWithDuration:0.25 animations:^{
         overlayView.alpha = 1;
-        scrollPanel.alpha = 1;
-        scrollPanel.transform = CGAffineTransformIdentity;
+        panelContainer.alpha = 1;
+        panelContainer.transform = CGAffineTransformIdentity;
     }];
 }
 
@@ -847,11 +853,11 @@
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-    UIScrollView *scrollPanel = [keyWindow viewWithTag:99997];
-    if (!scrollPanel) return;
-    UIView *panel = [scrollPanel viewWithTag:99998];
-    if (!panel) return;
-    UIView *row = [panel viewWithTag:tag];
+    UIView *panelContainer = [keyWindow viewWithTag:99997];
+    if (!panelContainer) return;
+    UIView *contentView = [panelContainer viewWithTag:99998];
+    if (!contentView) return;
+    UIView *row = [contentView viewWithTag:tag];
     if (!row) return;
     for (UIView *sub in row.subviews) {
         if ([sub isKindOfClass:[UILabel class]] && sub.frame.origin.y > 20) {
@@ -880,17 +886,15 @@
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
     UIView *overlay = [keyWindow viewWithTag:99999];
-    UIScrollView *scrollPanel = [keyWindow viewWithTag:99997];
-    UIView *panel = [keyWindow viewWithTag:99998];
+    UIView *panelContainer = [keyWindow viewWithTag:99997];
 
     [UIView animateWithDuration:0.2 animations:^{
         overlay.alpha = 0;
-        scrollPanel.alpha = 0;
-        scrollPanel.transform = CGAffineTransformMakeScale(0.9, 0.9);
+        panelContainer.alpha = 0;
+        panelContainer.transform = CGAffineTransformMakeScale(0.9, 0.9);
     } completion:^(BOOL finished) {
         [overlay removeFromSuperview];
-        [scrollPanel removeFromSuperview];
-        [panel removeFromSuperview];
+        [panelContainer removeFromSuperview];
     }];
 }
 
@@ -983,34 +987,31 @@
 }
 
 - (void)handlePanelTitleBarPan:(UIPanGestureRecognizer *)gesture {
-    UIScrollView *scrollPanel = nil;
+    UIView *panelContainer = nil;
     UIWindow *keyWindow = [self topmostWindow];
     if (keyWindow) {
-        scrollPanel = (UIScrollView *)[keyWindow viewWithTag:99997];
+        panelContainer = [keyWindow viewWithTag:99997];
     }
-    if (!scrollPanel) return;
+    if (!panelContainer) return;
 
-    CGPoint translation = [gesture translationInView:scrollPanel.superview];
+    CGPoint translation = [gesture translationInView:panelContainer.superview];
     if (gesture.state == UIGestureRecognizerStateBegan) {
         self.lastPanelTranslation = CGPointZero;
     }
     if (gesture.state == UIGestureRecognizerStateChanged) {
         CGFloat deltaX = translation.x - self.lastPanelTranslation.x;
         CGFloat deltaY = translation.y - self.lastPanelTranslation.y;
-        CGRect newFrame = scrollPanel.frame;
+        CGRect newFrame = panelContainer.frame;
         newFrame.origin.x += deltaX;
         newFrame.origin.y += deltaY;
-        CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
-        CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
-        newFrame.origin.x = MAX(0, MIN(newFrame.origin.x, screenWidth - newFrame.size.width));
-        newFrame.origin.y = MAX(0, MIN(newFrame.origin.y, screenHeight - newFrame.size.height));
-        scrollPanel.frame = newFrame;
+        // 不限制拖动位置，面板可以自由拖到屏幕任意位置
+        panelContainer.frame = newFrame;
         self.lastPanelTranslation = translation;
     }
     if (gesture.state == UIGestureRecognizerStateEnded ||
         gesture.state == UIGestureRecognizerStateCancelled) {
         self.lastPanelTranslation = CGPointZero;
-        [gesture setTranslation:CGPointZero inView:scrollPanel.superview];
+        [gesture setTranslation:CGPointZero inView:panelContainer.superview];
     }
 }
 

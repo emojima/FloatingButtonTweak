@@ -1033,19 +1033,19 @@
 
 // 🔥 新增：刷新概率正则匹配模式（分别匹配四个品质）
 - (NSString *)refreshRatePatternExcellent {
-    return @"\[\"优秀\"\],weight:\d+";
+    return @"\\[\"优秀\"\\],weight:\\d+";
 }
 
 - (NSString *)refreshRatePatternGood {
-    return @"\[\"精良\"\],weight:\d+";
+    return @"\\[\"精良\"\\],weight:\\d+";
 }
 
 - (NSString *)refreshRatePatternEpic {
-    return @"\[\"史诗\"\],weight:\d+";
+    return @"\\[\"史诗\"\\],weight:\\d+";
 }
 
 - (NSString *)refreshRatePatternLegendary {
-    return @"\[\"神器\"\],weight:\d+";
+    return @"\\[\"神器\"\\],weight:\\d+";
 }
 
 // 🔥 新增：刷新概率替换字符串（分别替换四个品质）

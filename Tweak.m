@@ -908,8 +908,8 @@
     // 规则1：免广告刷新属性词条
     [self.urlReplacementRules addObject:@{
         @"name": @"免广告刷新属性词条",
-        @"urlPattern": @"bdpfile://bd.timor.wk/bdpbase/bdpdir/2/subpackages/main/game.js",
-        @"urlIsRegex": @NO,
+        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+        @"urlIsRegex": @YES,
         @"contentPattern": @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0",
         @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
         @"useRegex": @NO,

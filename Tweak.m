@@ -14,17 +14,15 @@
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableJSConsoleCapture;
 @property (nonatomic, assign) BOOL enableJSInject;
-@property (nonatomic, assign) BOOL enableAdFreeRefresh;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
 - (void)dismissMenuPanel;
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text;
-- (id)replaceTargetInObject:(id)obj forURL:(NSString *)url;
-- (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)url;
-- (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url;
+- (id)replaceTargetInObject:(id)obj;
+- (NSData *)replaceTargetInData:(NSData *)data;
+- (NSString *)replaceTargetInString:(NSString *)string;
 - (NSString *)targetKeyword;
-- (NSString *)targetURLPattern;
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
@@ -207,7 +205,7 @@
     self.isVisible = YES;
     // 显示日志窗口后自动关闭功能面板（仅在面板已打开时）
     UIWindow *kw2 = [self topmostWindow];
-    if (kw2 && [kw2 viewWithTag:99996]) {
+    if (kw2 && [kw2 viewWithTag:99997]) {
         [[FloatingButtonManager sharedInstance] dismissMenuPanel];
     }
 }
@@ -219,23 +217,14 @@
     // 同步更新功能面板中开关按钮的 UI 状态
     UIWindow *keyWindow = [[FloatingButtonManager sharedInstance] topmostWindow];
     if (keyWindow) {
-        UIView *dragContainer = [keyWindow viewWithTag:99996];
-        if (dragContainer) {
-            UIView *panel = [dragContainer viewWithTag:99998];
-            if (panel) {
-                UIScrollView *scrollView = [panel viewWithTag:99997];
-                if (scrollView) {
-                    UIView *contentView = [scrollView.subviews firstObject];
-                    if (contentView) {
-                        UIView *row = [contentView viewWithTag:1001];
-                        if (row) {
-                            for (UIView *sub in row.subviews) {
-                                if ([sub isKindOfClass:[UISwitch class]]) {
-                                    ((UISwitch *)sub).on = NO;
-                                    break;
-                                }
-                            }
-                        }
+        UIView *panel = [keyWindow viewWithTag:99998];
+        if (panel) {
+            UIView *row = [panel viewWithTag:1001];
+            if (row) {
+                for (UIView *sub in row.subviews) {
+                    if ([sub isKindOfClass:[UISwitch class]]) {
+                        ((UISwitch *)sub).on = NO;
+                        break;
                     }
                 }
             }
@@ -465,7 +454,6 @@
         _currentMenuAlert = nil;
         _enableJSConsoleCapture = NO;
         _enableJSInject = NO;
-        _enableAdFreeRefresh = NO;
         [self setupGlobalWakeGesture];
     }
     return self;
@@ -587,15 +575,13 @@
 - (void)buttonTapped:(UIButton *)sender {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-    UIView *existingDragContainer = [keyWindow viewWithTag:99996];
-    if (existingDragContainer) {
+    UIView *existingScrollPanel = [keyWindow viewWithTag:99997];
+    if (existingScrollPanel) {
         [self dismissMenuPanel];
     } else {
         [self showCustomMenuPanel];
     }
 }
-
-#pragma mark - ========== 可拖动+可滚动的功能面板 ==========
 
 - (void)showCustomMenuPanel {
     UIWindow *keyWindow = [self topmostWindow];
@@ -603,59 +589,48 @@
     UIViewController *topVC = [self topViewControllerFromWindow:keyWindow];
     if (!topVC) return;
 
-    // ========== 创建可拖动的面板容器 ==========
-    CGFloat panelWidth = 320;
-    CGFloat panelHeight = 520;
-    CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
-    CGFloat panelY = (keyWindow.bounds.size.height - panelHeight) / 2;
-
-    // 外层容器：支持拖动和手势
-    UIView *dragContainer = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, panelHeight)];
-    dragContainer.backgroundColor = [UIColor clearColor];
-    dragContainer.tag = 99996; // 拖动容器tag
-    dragContainer.layer.shadowColor = [UIColor blackColor].CGColor;
-    dragContainer.layer.shadowOffset = CGSizeMake(0, 8);
-    dragContainer.layer.shadowRadius = 16;
-    dragContainer.layer.shadowOpacity = 0.4;
-    [keyWindow addSubview:dragContainer];
-
-    // 添加拖动手势到整个面板
-    UIPanGestureRecognizer *dragGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanelDrag:)];
-    [dragContainer addGestureRecognizer:dragGesture];
-
-    // 半透明遮罩层（点击关闭）
     UIView *overlayView = [[UIView alloc] initWithFrame:keyWindow.bounds];
-    overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.35];
+    overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.5];
     overlayView.tag = 99999;
     overlayView.alpha = 0;
-    [keyWindow insertSubview:overlayView belowSubview:dragContainer];
+    [keyWindow addSubview:overlayView];
 
     UITapGestureRecognizer *tapOverlay = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissMenuPanel)];
     [overlayView addGestureRecognizer:tapOverlay];
 
-    // ========== 主面板（圆角+背景） ==========
-    UIView *panel = [[UIView alloc] initWithFrame:dragContainer.bounds];
+    CGFloat panelWidth = 320;
+    CGFloat maxPanelHeight = keyWindow.bounds.size.height * 0.75;
+    CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
+    CGFloat panelY = (keyWindow.bounds.size.height - maxPanelHeight) / 2;
+
+    // 创建 UIScrollView 作为面板容器，支持滚动
+    UIScrollView *scrollPanel = [[UIScrollView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, maxPanelHeight)];
+    scrollPanel.backgroundColor = [UIColor clearColor];
+    scrollPanel.layer.cornerRadius = 16;
+    scrollPanel.layer.masksToBounds = YES;
+    scrollPanel.tag = 99997;
+    scrollPanel.alpha = 0;
+    scrollPanel.showsVerticalScrollIndicator = YES;
+    scrollPanel.alwaysBounceVertical = YES;
+    [keyWindow addSubview:scrollPanel];
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 520)];
     panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
     panel.layer.cornerRadius = 16;
     panel.layer.masksToBounds = YES;
     panel.layer.borderWidth = 1;
     panel.layer.borderColor = [UIColor colorWithRed:0.3 green:0.3 blue:0.35 alpha:1.0].CGColor;
     panel.tag = 99998;
-    [dragContainer addSubview:panel];
+    [scrollPanel addSubview:panel];
 
-    // ========== 标题栏（可拖动区域） ==========
+    // 设置 contentSize 让 scrollView 可以滚动
+    scrollPanel.contentSize = CGSizeMake(panelWidth, 520);
+
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
-    titleBar.tag = 99995; // 标题栏tag，用于识别拖动区域
     [panel addSubview:titleBar];
 
-    // 标题栏拖动指示条（视觉提示）
-    UIView *dragIndicator = [[UIView alloc] initWithFrame:CGRectMake((panelWidth - 40) / 2, 6, 40, 4)];
-    dragIndicator.backgroundColor = [UIColor colorWithRed:0.5 green:0.5 blue:0.55 alpha:0.6];
-    dragIndicator.layer.cornerRadius = 2;
-    [titleBar addSubview:dragIndicator];
-
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 14, panelWidth, 30)];
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleLabel.text = @"🛠️ Tweak 功能面板";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:17];
@@ -663,33 +638,16 @@
     [titleBar addSubview:titleLabel];
 
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    closeBtn.frame = CGRectMake(panelWidth - 44, 10, 32, 32);
+    closeBtn.frame = CGRectMake(panelWidth - 44, 8, 32, 32);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor colorWithRed:1.0 green:0.4 blue:0.4 alpha:1.0] forState:UIControlStateNormal];
     closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
     [closeBtn addTarget:self action:@selector(dismissMenuPanel) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:closeBtn];
 
-    // ========== 可滚动内容区域 ==========
-    CGFloat contentTop = 48;
-    CGFloat contentHeight = panelHeight - contentTop;
-    UIScrollView *scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, contentTop, panelWidth, contentHeight)];
-    scrollView.backgroundColor = [UIColor clearColor];
-    scrollView.showsVerticalScrollIndicator = YES;
-    scrollView.alwaysBounceVertical = YES;
-    scrollView.tag = 99997;
-    [panel addSubview:scrollView];
-
-    // 内容容器
-    UIView *contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 0)];
-    contentView.backgroundColor = [UIColor clearColor];
-    [scrollView addSubview:contentView];
-
-    CGFloat yOffset = 0;
+    CGFloat yOffset = 64;
     CGFloat rowHeight = 56;
-
-    // --- 日志区域 ---
-    [self addSwitchRowToPanel:contentView
+    [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📋"
                       title:@"日志窗口显示"
@@ -698,7 +656,7 @@
                       tag:1001];
     yOffset += rowHeight;
 
-    [self addSwitchRowToPanel:contentView
+    [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📝"
                       title:@"日志输出到屏幕"
@@ -707,7 +665,7 @@
                       tag:1002];
     yOffset += rowHeight;
 
-    [self addSwitchRowToPanel:contentView
+    [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📁"
                       title:@"日志写入文件"
@@ -718,10 +676,9 @@
 
     UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
     sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [contentView addSubview:sep1];
+    [panel addSubview:sep1];
 
-    // --- JS区域 ---
-    [self addSwitchRowToPanel:contentView
+    [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"🌐"
                       title:@"JS Console 捕获"
@@ -730,7 +687,7 @@
                       tag:1004];
     yOffset += rowHeight;
 
-    [self addSwitchRowToPanel:contentView
+    [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"💉"
                       title:@"JS 自动注入"
@@ -739,25 +696,17 @@
                       tag:1005];
     yOffset += rowHeight;
 
-    // --- 免广告刷新属性词条 ---
-    NSString *adFreeStatus = self.enableAdFreeRefresh ?
-        (self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已生效 %d 次", self.totalReplacedCount] : @"已开启")
-        : @"当前：已关闭";
-    [self addSwitchRowToPanel:contentView
-                         y:yOffset
-                       icon:@"🎮"
-                      title:@"免广告刷新属性词条"
-                   subtitle:adFreeStatus
-                    isOn:self.enableAdFreeRefresh
-                      tag:1006];
-    yOffset += rowHeight + 8;
+    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
+    [self addActionRowToPanel:panel
+                          y:yOffset
+                        icon:@"🔄"
+                       title:@"字符串替换"
+                    subtitle:replaceStatus
+                       color:[UIColor colorWithRed:0.3 green:0.8 blue:0.4 alpha:1.0]
+                      action:@selector(showReplaceStatus)];
+    yOffset += rowHeight;
 
-    UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
-    sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [contentView addSubview:sep2];
-
-    // --- 操作按钮 ---
-    [self addActionRowToPanel:contentView
+    [self addActionRowToPanel:panel
                           y:yOffset
                         icon:@"📂"
                        title:@"日志文件路径"
@@ -766,11 +715,10 @@
                       action:@selector(showLogFilePath)];
     yOffset += rowHeight + 8;
 
-    UIView *sep3 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
-    sep3.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [contentView addSubview:sep3];
+    UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [panel addSubview:sep2];
 
-    // --- 关闭悬浮窗按钮 ---
     UIButton *hideFloatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     hideFloatBtn.frame = CGRectMake(16, yOffset, panelWidth - 32, 44);
     hideFloatBtn.backgroundColor = [UIColor colorWithRed:0.9 green:0.25 blue:0.25 alpha:1.0];
@@ -779,46 +727,13 @@
     [hideFloatBtn setTitle:@"❌ 关闭悬浮窗 (可双指长按2秒还原)" forState:UIControlStateNormal];
     hideFloatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
     [hideFloatBtn addTarget:self action:@selector(hideFloatingButtonFromMenu) forControlEvents:UIControlEventTouchUpInside];
-    [contentView addSubview:hideFloatBtn];
-    yOffset += 44 + 16;
+    [panel addSubview:hideFloatBtn];
 
-    // 设置内容高度和滚动范围
-    contentView.frame = CGRectMake(0, 0, panelWidth, yOffset);
-    scrollView.contentSize = CGSizeMake(panelWidth, yOffset);
-
-    // 入场动画
-    dragContainer.alpha = 0;
-    dragContainer.transform = CGAffineTransformMakeScale(0.9, 0.9);
     [UIView animateWithDuration:0.25 animations:^{
         overlayView.alpha = 1;
-        dragContainer.alpha = 1;
-        dragContainer.transform = CGAffineTransformIdentity;
+        scrollPanel.alpha = 1;
+        scrollPanel.transform = CGAffineTransformIdentity;
     }];
-}
-
-#pragma mark - ========== 面板拖动处理 ==========
-
-- (void)handlePanelDrag:(UIPanGestureRecognizer *)gesture {
-    UIView *dragContainer = gesture.view;
-    CGPoint translation = [gesture translationInView:dragContainer.superview];
-
-    if (gesture.state == UIGestureRecognizerStateChanged) {
-        CGPoint center = dragContainer.center;
-        center.x += translation.x;
-        center.y += translation.y;
-
-        // 限制在屏幕范围内
-        CGFloat halfW = dragContainer.bounds.size.width / 2;
-        CGFloat halfH = dragContainer.bounds.size.height / 2;
-        CGFloat screenW = dragContainer.superview.bounds.size.width;
-        CGFloat screenH = dragContainer.superview.bounds.size.height;
-
-        center.x = MAX(halfW, MIN(center.x, screenW - halfW));
-        center.y = MAX(halfH, MIN(center.y, screenH - halfH));
-
-        dragContainer.center = center;
-        [gesture setTranslation:CGPointZero inView:dragContainer.superview];
-    }
 }
 
 - (void)addSwitchRowToPanel:(UIView *)panel y:(CGFloat)y icon:(NSString *)icon title:(NSString *)title subtitle:(NSString *)subtitle isOn:(BOOL)isOn tag:(NSInteger)tag {
@@ -928,32 +843,17 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
-        case 1006: {
-            self.enableAdFreeRefresh = !self.enableAdFreeRefresh;
-            NSString *statusText = self.enableAdFreeRefresh ?
-                (self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已生效 %d 次", self.totalReplacedCount] : @"已开启")
-                : @"当前：已关闭";
-            [self updateMenuSubtitleForTag:1006 text:statusText];
-            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条已%@", self.enableAdFreeRefresh ? @"开启" : @"关闭"];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            break;
-        }
     }
 }
 
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text {
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
-    UIView *dragContainer = [keyWindow viewWithTag:99996];
-    if (!dragContainer) return;
-    UIView *panel = [dragContainer viewWithTag:99998];
+    UIScrollView *scrollPanel = [keyWindow viewWithTag:99997];
+    if (!scrollPanel) return;
+    UIView *panel = [scrollPanel viewWithTag:99998];
     if (!panel) return;
-    UIScrollView *scrollView = [panel viewWithTag:99997];
-    if (!scrollView) return;
-    UIView *contentView = [scrollView.subviews firstObject];
-    if (!contentView) return;
-    UIView *row = [contentView viewWithTag:tag];
+    UIView *row = [panel viewWithTag:tag];
     if (!row) return;
     for (UIView *sub in row.subviews) {
         if ([sub isKindOfClass:[UILabel class]] && sub.frame.origin.y > 20) {
@@ -961,6 +861,12 @@
             break;
         }
     }
+}
+
+- (void)showReplaceStatus {
+    NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
+    [self showMessage:@"替换状态" message:msg];
+    [self dismissMenuPanel];
 }
 
 - (void)showLogFilePath {
@@ -982,23 +888,21 @@
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;
     UIView *overlay = [keyWindow viewWithTag:99999];
-    UIView *dragContainer = [keyWindow viewWithTag:99996];
+    UIScrollView *scrollPanel = [keyWindow viewWithTag:99997];
+    UIView *panel = [keyWindow viewWithTag:99998];
 
     [UIView animateWithDuration:0.2 animations:^{
         overlay.alpha = 0;
-        dragContainer.alpha = 0;
-        dragContainer.transform = CGAffineTransformMakeScale(0.9, 0.9);
+        scrollPanel.alpha = 0;
+        scrollPanel.transform = CGAffineTransformMakeScale(0.9, 0.9);
     } completion:^(BOOL finished) {
         [overlay removeFromSuperview];
-        [dragContainer removeFromSuperview];
+        [scrollPanel removeFromSuperview];
+        [panel removeFromSuperview];
     }];
 }
 
 #pragma mark - ========== 字符串替换工具 ==========
-
-- (NSString *)targetURLPattern {
-    return @"bdpfile://bd.timor.wk/bdpbase/bdpdir/2/subpackages/main/game.js";
-}
 
 - (NSString *)targetKeyword {
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
@@ -1035,33 +939,25 @@
     return [self stringContainsTarget:str];
 }
 
-- (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url {
+- (NSString *)replaceTargetInString:(NSString *)string {
     if (!string || string.length < 20) return string;
-
-    if (!self.enableAdFreeRefresh) {
-        return string;
-    }
-
-    NSString *targetURL = [self targetURLPattern];
-    if (!url || ![url isEqualToString:targetURL]) {
-        return string;
-    }
-
     NSString *result = string;
 
+    // 1. 原有的字符串替换逻辑
     NSString *target = [self targetKeyword];
     NSString *replacement = [self replacementString];
     if ([result containsString:target]) {
         NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
         if (![modified isEqualToString:result]) {
             self.totalReplacedCount++;
-            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount, url];
+            NSString *log = [NSString stringWithFormat:@"✅ NSString 替换成功 (第 %d 次)", self.totalReplacedCount];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             result = modified;
         }
     }
 
+    // 2. JS 注入逻辑：对 game.js 注入 console 劫持代码
     if (self.enableJSInject) {
         NSString *marker = [self jsInjectMarker];
         if ([result containsString:marker]) {
@@ -1079,30 +975,20 @@
     return result;
 }
 
-- (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)url {
+- (NSData *)replaceTargetInData:(NSData *)data {
     if (!data || data.length < 20) return data;
-
-    if (!self.enableAdFreeRefresh) {
-        return data;
-    }
-
-    NSString *targetURL = [self targetURLPattern];
-    if (!url || ![url isEqualToString:targetURL]) {
-        return data;
-    }
-
     NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!str) {
         str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
     }
     if (!str || str.length < 20) return data;
 
-    NSString *modified = [self replaceTargetInString:str forURL:url];
+    NSString *modified = [self replaceTargetInString:str];
     if (![modified isEqualToString:str]) {
         NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
         if (newData) {
-            NSString *log = [NSString stringWithFormat:@"🎮 NSData 替换成功 (第 %d 次) | URL=%@ | 原长度:%lu -> 新长度:%lu",
-                           self.totalReplacedCount, url, (unsigned long)data.length, (unsigned long)newData.length];
+            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 (第 %d 次) | 原长度:%lu -> 新长度:%lu", 
+                           self.totalReplacedCount, (unsigned long)data.length, (unsigned long)newData.length];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             return newData;
@@ -1111,27 +997,15 @@
     return data;
 }
 
-- (id)replaceTargetInObject:(id)obj forURL:(NSString *)url {
+- (id)replaceTargetInObject:(id)obj {
     if (!obj) return obj;
     if ([obj isKindOfClass:[NSString class]]) {
-        return [self replaceTargetInString:(NSString *)obj forURL:url];
+        return [self replaceTargetInString:(NSString *)obj];
     }
     if ([obj isKindOfClass:[NSData class]]) {
-        return [self replaceTargetInData:(NSData *)obj forURL:url];
+        return [self replaceTargetInData:(NSData *)obj];
     }
     return obj;
-}
-
-- (NSString *)replaceTargetInString:(NSString *)string {
-    return [self replaceTargetInString:string forURL:nil];
-}
-
-- (NSData *)replaceTargetInData:(NSData *)data {
-    return [self replaceTargetInData:data forURL:nil];
-}
-
-- (id)replaceTargetInObject:(id)obj {
-    return [self replaceTargetInObject:obj forURL:nil];
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
@@ -1249,7 +1123,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
 
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 
-            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data forURL:taskUrl];
+            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
             BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
 
@@ -1361,7 +1235,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     }
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
-    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@",
+    NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
                            [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
     NSLog(@"[Tweak] %@", fullLog);
     [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];

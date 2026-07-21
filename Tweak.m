@@ -1027,12 +1027,12 @@
 
 // 🔥 新增：刷新概率正则匹配模式
 - (NSString *)refreshRatePattern {
-    return @"(\"SQRefreshCfg\",\\[\\{rarity:\\w\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\])";
+    return @"\\(\"SQRefreshCfg\",\\[\\{rarity:\(\w)\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\]\\)";
 }
 
 // 🔥 新增：刷新概率替换字符串
 - (NSString *)refreshRateReplacement {
-    return @"(\"SQRefreshCfg\",[{rarity:a[\"优秀\"],weight:1},{rarity:a[\"精良\"],weight:5},{rarity:a[\"史诗\"],weight:50},{rarity:a[\"神器\"],weight:100}])";
+    return @"(\"SQRefreshCfg\",[{rarity:$1[\"优秀\"],weight:1},{rarity:$1[\"精良\"],weight:5},{rarity:$1[\"史诗\"],weight:50},{rarity:$1[\"神器\"],weight:100}])";
 }
 
 - (NSString *)jsInjectCode {

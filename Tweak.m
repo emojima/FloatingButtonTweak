@@ -602,7 +602,7 @@
     [overlayView addGestureRecognizer:tapOverlay];
 
     CGFloat panelWidth = 320;
-    CGFloat maxPanelHeight = keyWindow.bounds.size.height * 0.75;
+    CGFloat maxPanelHeight = keyWindow.bounds.size.height * 0.6;
     CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
     CGFloat panelY = (keyWindow.bounds.size.height - maxPanelHeight) / 2;
 
@@ -902,7 +902,7 @@
     // 规则1：免广告刷新属性词条
     [self.urlReplacementRules addObject:@{
         @"name": @"免广告刷新属性词条",
-        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/bdpbase/bdpdir/2/subpackages/main/game\\.js",
+        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
         @"urlIsRegex": @YES,
         @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
         @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",

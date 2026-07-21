@@ -13,7 +13,9 @@
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableAdFreeRefresh;
+@property (nonatomic, assign) BOOL enableExampleRule;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
+@property (nonatomic, assign) CGPoint lastPanelTranslation;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
@@ -449,6 +451,7 @@
         _totalHookedMethods = 0;
         _currentMenuAlert = nil;
         _enableAdFreeRefresh = NO;
+        _enableExampleRule = NO;
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
         [self setupGlobalWakeGesture];
@@ -611,7 +614,7 @@
     scrollPanel.alwaysBounceVertical = YES;
     [keyWindow addSubview:scrollPanel];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 420)];
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 480)];
     panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
     panel.layer.cornerRadius = 16;
     panel.layer.masksToBounds = YES;
@@ -620,15 +623,16 @@
     panel.tag = 99998;
     [scrollPanel addSubview:panel];
 
-    // 设置 contentSize 让 scrollView 可以滚动
-    scrollPanel.contentSize = CGSizeMake(panelWidth, 420);
-
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
     [panel addSubview:titleBar];
 
+    // 标题栏拖动手势：按住标题栏可自由拖动整个面板
+    UIPanGestureRecognizer *titlePan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanelTitleBarPan:)];
+    [titleBar addGestureRecognizer:titlePan];
+
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
-    titleLabel.text = @"🛠️ Tweak 功能面板";
+    titleLabel.text = @"🛠️ Tweak 功能面板（按住标题栏拖动）";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:17];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -684,14 +688,13 @@
                       tag:1006];
     yOffset += rowHeight;
 
-    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
-    [self addActionRowToPanel:panel
-                          y:yOffset
-                        icon:@"🔄"
-                       title:@"字符串替换"
-                    subtitle:replaceStatus
-                       color:[UIColor colorWithRed:0.3 green:0.8 blue:0.4 alpha:1.0]
-                      action:@selector(showReplaceStatus)];
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"💰"
+                      title:@"示例：无限金币"
+                   subtitle:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableExampleRule
+                      tag:1007];
     yOffset += rowHeight;
 
     [self addActionRowToPanel:panel
@@ -716,6 +719,13 @@
     hideFloatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
     [hideFloatBtn addTarget:self action:@selector(hideFloatingButtonFromMenu) forControlEvents:UIControlEventTouchUpInside];
     [panel addSubview:hideFloatBtn];
+
+    yOffset += 44 + 16; // 按钮高度 + 底部间距
+
+    // 动态设置 panel 高度和 scrollView contentSize，支持内容过多时上下滚动
+    CGFloat contentHeight = yOffset;
+    panel.frame = CGRectMake(0, 0, panelWidth, contentHeight);
+    scrollPanel.contentSize = CGSizeMake(panelWidth, contentHeight);
 
     [UIView animateWithDuration:0.25 animations:^{
         overlayView.alpha = 1;
@@ -823,6 +833,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1007: {
+            self.enableExampleRule = !self.enableExampleRule;
+            [self updateMenuSubtitleForTag:1007 text:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"💰 示例：无限金币已%@", self.enableExampleRule ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -841,12 +859,6 @@
             break;
         }
     }
-}
-
-- (void)showReplaceStatus {
-    NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
-    [self showMessage:@"替换状态" message:msg];
-    [self dismissMenuPanel];
 }
 
 - (void)showLogFilePath {
@@ -882,38 +894,27 @@
     }];
 }
 
-#pragma mark - ========== 字符串替换工具 ==========
-
-- (NSString *)targetKeyword {
-    return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
-}
-
-- (NSString *)jsInjectCode {
-    return @"function tweakLog(message) { var encoded = encodeURIComponent(message); var img = new Image(); img.src = 'tweak://log?msg=' + encoded; } var originalLog = console.log; console.log = function() { var args = Array.prototype.slice.call(arguments); var msg = args.map(function(a) { try { return JSON.stringify(a); } catch(e) { return String(a); } }).join(' '); tweakLog(msg); originalLog.apply(console, arguments); };";
-}
-
-- (NSString *)jsInjectMarker {
-    return @"__tt_define__(\"subpackages/main/game.js\"";
-}
-
-- (NSString *)jsInjectReplacement {
-    return [NSString stringWithFormat:@"%@%@", [self jsInjectCode], [self jsInjectMarker]];
-}
-
-- (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
-}
-
 - (void)registerDefaultURLReplacementRules {
     // 规则1：免广告刷新属性词条
     [self.urlReplacementRules addObject:@{
         @"name": @"免广告刷新属性词条",
-        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/bdpbase/bdpdir/2/subpackages/main/game\\.js",
         @"urlIsRegex": @YES,
-        @"contentPattern": @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0",
+        @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
         @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
-        @"useRegex": @NO,
+        @"useRegex": @YES,
         @"enabledKey": @"enableAdFreeRefresh"
+    }];
+
+    // 示例规则：普通字符串匹配 + 普通字符串替换（非正则）
+    [self.urlReplacementRules addObject:@{
+        @"name": @"示例：无限金币",
+        @"urlPattern": @"game.js",
+        @"urlIsRegex": @NO,
+        @"contentPattern": @"this.coins=0",
+        @"replacement": @"this.coins=999999",
+        @"useRegex": @NO,
+        @"enabledKey": @"enableExampleRule"
     }];
 }
 
@@ -974,80 +975,43 @@
     return result;
 }
 
-- (BOOL)stringContainsTarget:(NSString *)string {
-    if (!string || string.length < 10) return NO;
-    return [string containsString:[self targetKeyword]];
-}
-
-- (BOOL)dataContainsTarget:(NSData *)data {
-    if (!data || data.length < 20) return NO;
-    NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (!str) {
-        str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
-    }
-    if (!str) return NO;
-    return [self stringContainsTarget:str];
-}
-
-- (NSString *)replaceTargetInString:(NSString *)string {
-    if (!string || string.length < 20) return string;
-    NSString *result = string;
-
-    // 1. 原有的字符串替换逻辑
-    NSString *target = [self targetKeyword];
-    NSString *replacement = [self replacementString];
-    if ([result containsString:target]) {
-        NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
-        if (![modified isEqualToString:result]) {
-            self.totalReplacedCount++;
-            NSString *log = [NSString stringWithFormat:@"✅ NSString 替换成功 (第 %d 次)", self.totalReplacedCount];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            result = modified;
-        }
-    }
-
-    return result;
-}
-
-- (NSData *)replaceTargetInData:(NSData *)data {
-    if (!data || data.length < 20) return data;
-    NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (!str) {
-        str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
-    }
-    if (!str || str.length < 20) return data;
-
-    NSString *modified = [self replaceTargetInString:str];
-    if (![modified isEqualToString:str]) {
-        NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
-        if (newData) {
-            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 (第 %d 次) | 原长度:%lu -> 新长度:%lu", 
-                           self.totalReplacedCount, (unsigned long)data.length, (unsigned long)newData.length];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            return newData;
-        }
-    }
-    return data;
-}
-
-- (id)replaceTargetInObject:(id)obj {
-    if (!obj) return obj;
-    if ([obj isKindOfClass:[NSString class]]) {
-        return [self replaceTargetInString:(NSString *)obj];
-    }
-    if ([obj isKindOfClass:[NSData class]]) {
-        return [self replaceTargetInData:(NSData *)obj];
-    }
-    return obj;
-}
-
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
     UIView *button = gesture.view;
     CGPoint translation = [gesture translationInView:button.superview];
     button.center = CGPointMake(button.center.x + translation.x, button.center.y + translation.y);
     [gesture setTranslation:CGPointZero inView:button.superview];
+}
+
+- (void)handlePanelTitleBarPan:(UIPanGestureRecognizer *)gesture {
+    UIScrollView *scrollPanel = nil;
+    UIWindow *keyWindow = [self topmostWindow];
+    if (keyWindow) {
+        scrollPanel = (UIScrollView *)[keyWindow viewWithTag:99997];
+    }
+    if (!scrollPanel) return;
+
+    CGPoint translation = [gesture translationInView:scrollPanel.superview];
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.lastPanelTranslation = CGPointZero;
+    }
+    if (gesture.state == UIGestureRecognizerStateChanged) {
+        CGFloat deltaX = translation.x - self.lastPanelTranslation.x;
+        CGFloat deltaY = translation.y - self.lastPanelTranslation.y;
+        CGRect newFrame = scrollPanel.frame;
+        newFrame.origin.x += deltaX;
+        newFrame.origin.y += deltaY;
+        CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
+        CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+        newFrame.origin.x = MAX(0, MIN(newFrame.origin.x, screenWidth - newFrame.size.width));
+        newFrame.origin.y = MAX(0, MIN(newFrame.origin.y, screenHeight - newFrame.size.height));
+        scrollPanel.frame = newFrame;
+        self.lastPanelTranslation = translation;
+    }
+    if (gesture.state == UIGestureRecognizerStateEnded ||
+        gesture.state == UIGestureRecognizerStateCancelled) {
+        self.lastPanelTranslation = CGPointZero;
+        [gesture setTranslation:CGPointZero inView:scrollPanel.superview];
+    }
 }
 
 - (void)hideFloatingButton {

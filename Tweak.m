@@ -940,45 +940,75 @@
     // 规则1：免广告刷新属性词条
     [self.urlReplacementRules addObject:@{
         @"name": @"免广告刷新属性词条",
-        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-        @"urlIsRegex": @YES,
-        @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-        @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
-        @"useRegex": @YES,
-        @"enabledKey": @"enableAdFreeRefresh"
+        @"enabledKey": @"enableAdFreeRefresh",
+        @"rules": @[
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
+                @"useRegex": @YES
+            }
+        ]
     }];
 
     // 示例规则：普通字符串匹配 + 普通字符串替换（非正则）
     [self.urlReplacementRules addObject:@{
         @"name": @"示例：无限金币",
-        @"urlPattern": @"game.js",
-        @"urlIsRegex": @NO,
-        @"contentPattern": @"this.coins=0",
-        @"replacement": @"this.coins=999999",
-        @"useRegex": @NO,
-        @"enabledKey": @"enableExampleRule"
+        @"enabledKey": @"enableExampleRule",
+        @"rules": @[
+            @{
+                @"urlPattern": @"game.js",
+                @"urlIsRegex": @NO,
+                @"contentPattern": @"this.coins=0",
+                @"replacement": @"this.coins=999999",
+                @"useRegex": @NO
+            }
+        ]
     }];
 
     // 规则3：增加刷新高级属性概率
     [self.urlReplacementRules addObject:@{
         @"name": @"增加刷新高级属性概率",
-        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-        @"urlIsRegex": @YES,
-        @"contentPattern": @"\\[\"神器\"\\],weight:\\d+",
-        @"replacement": @"[\"神器\"],weight:100",
-        @"useRegex": @YES,
-        @"enabledKey": @"enableIncreaseRareRate"
+        @"enabledKey": @"enableIncreaseRareRate",
+        @"rules": @[
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"\\[\"史诗\"\\],weight:\\d+",
+                @"replacement": @"[\"史诗\"],weight:800",
+                @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"\\[\"神器\"\\],weight:\\d+",
+                @"replacement": @"[\"神器\"],weight:1000",
+                @"useRegex": @YES
+            }
+        ]
     }];
 
-    // 规则4：增加血量
+    // 规则4：增加血量（演示同一规则下多组替换）
     [self.urlReplacementRules addObject:@{
         @"name": @"增加血量",
-        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-        @"urlIsRegex": @YES,
-        @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
-        @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
-        @"useRegex": @YES,
-        @"enabledKey": @"enableIncreaseHP"
+        @"enabledKey": @"enableIncreaseHP",
+        @"rules": @[
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
+                @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
+                @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"maxHP:\\d+",
+                @"replacement": @"maxHP:9999",
+                @"useRegex": @YES
+            }
+        ]
     }];
 }
 
@@ -992,47 +1022,48 @@
         BOOL enabled = [[self valueForKey:enabledKey] boolValue];
         if (!enabled) continue;
 
-        // ========== 1. URL 匹配 ==========
-        NSString *urlPattern = rule[@"urlPattern"];
-        BOOL urlIsRegex = [rule[@"urlIsRegex"] boolValue];
-        BOOL urlMatched = NO;
+        NSString *ruleName = rule[@"name"] ?: @"URL特定替换";
+        NSArray *subRules = rule[@"rules"];
+        if (!subRules || subRules.count == 0) continue;
 
-        if (urlIsRegex) {
-            // 正则匹配 URL
-            NSRegularExpression *urlRegex = [NSRegularExpression regularExpressionWithPattern:urlPattern options:0 error:nil];
-            NSUInteger matchCount = [urlRegex numberOfMatchesInString:urlString options:0 range:NSMakeRange(0, urlString.length)];
-            urlMatched = (matchCount > 0);
-        } else {
-            // 普通字符串包含匹配 URL
-            urlMatched = [urlString containsString:urlPattern];
-        }
+        for (NSDictionary *subRule in subRules) {
+            // ========== 1. URL 匹配 ==========
+            NSString *urlPattern = subRule[@"urlPattern"];
+            BOOL urlIsRegex = [subRule[@"urlIsRegex"] boolValue];
+            BOOL urlMatched = NO;
 
-        if (!urlMatched) continue;
-
-        // ========== 2. 内容替换（正则 vs 普通字符串分开处理）==========
-        NSString *contentPattern = rule[@"contentPattern"];
-        NSString *replacement = rule[@"replacement"];
-        BOOL useRegex = [rule[@"useRegex"] boolValue];
-        NSString *modified = nil;
-
-        if (useRegex) {
-            // 正则替换
-            NSRegularExpression *contentRegex = [NSRegularExpression regularExpressionWithPattern:contentPattern options:0 error:nil];
-            modified = [contentRegex stringByReplacingMatchesInString:result options:0 range:NSMakeRange(0, result.length) withTemplate:replacement];
-        } else {
-            // 普通字符串替换
-            if ([result containsString:contentPattern]) {
-                modified = [result stringByReplacingOccurrencesOfString:contentPattern withString:replacement];
+            if (urlIsRegex) {
+                NSRegularExpression *urlRegex = [NSRegularExpression regularExpressionWithPattern:urlPattern options:0 error:nil];
+                NSUInteger matchCount = [urlRegex numberOfMatchesInString:urlString options:0 range:NSMakeRange(0, urlString.length)];
+                urlMatched = (matchCount > 0);
+            } else {
+                urlMatched = [urlString containsString:urlPattern];
             }
-        }
 
-        if (modified && ![modified isEqualToString:result]) {
-            self.totalReplacedCount++;
-            NSString *ruleName = rule[@"name"] ?: @"URL特定替换";
-            NSString *log = [NSString stringWithFormat:@"✅ [%@] 替换成功 (第 %d 次) URL=%@", ruleName, self.totalReplacedCount, urlString];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            result = modified;
+            if (!urlMatched) continue;
+
+            // ========== 2. 内容替换（正则 vs 普通字符串分开处理）==========
+            NSString *contentPattern = subRule[@"contentPattern"];
+            NSString *replacement = subRule[@"replacement"];
+            BOOL useRegex = [subRule[@"useRegex"] boolValue];
+            NSString *modified = nil;
+
+            if (useRegex) {
+                NSRegularExpression *contentRegex = [NSRegularExpression regularExpressionWithPattern:contentPattern options:0 error:nil];
+                modified = [contentRegex stringByReplacingMatchesInString:result options:0 range:NSMakeRange(0, result.length) withTemplate:replacement];
+            } else {
+                if ([result containsString:contentPattern]) {
+                    modified = [result stringByReplacingOccurrencesOfString:contentPattern withString:replacement];
+                }
+            }
+
+            if (modified && ![modified isEqualToString:result]) {
+                self.totalReplacedCount++;
+                NSString *log = [NSString stringWithFormat:@"✅ [%@] 替换成功 (第 %d 次) URL=%@", ruleName, self.totalReplacedCount, urlString];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                result = modified;
+            }
         }
     }
 

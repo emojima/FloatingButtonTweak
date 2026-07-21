@@ -14,6 +14,7 @@
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableAdFreeRefresh;
 @property (nonatomic, assign) BOOL enableExampleRule;
+@property (nonatomic, assign) BOOL enableIncreaseRareRate;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 @property (nonatomic, assign) CGPoint lastPanelTranslation;
 + (instancetype)sharedInstance;
@@ -455,6 +456,7 @@
         _currentMenuAlert = nil;
         _enableAdFreeRefresh = NO;
         _enableExampleRule = NO;
+        _enableIncreaseRareRate = NO;
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
         [self setupGlobalWakeGesture];
@@ -703,6 +705,15 @@
                       tag:1007];
     yOffset += rowHeight;
 
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"✨"
+                      title:@"增加刷新高级属性概率"
+                   subtitle:self.enableIncreaseRareRate ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableIncreaseRareRate
+                      tag:1008];
+    yOffset += rowHeight;
+
     [self addActionRowToPanel:contentView
                           y:yOffset
                         icon:@"📂"
@@ -847,6 +858,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1008: {
+            self.enableIncreaseRareRate = !self.enableIncreaseRareRate;
+            [self updateMenuSubtitleForTag:1008 text:self.enableIncreaseRareRate ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"✨ 增加刷新高级属性概率已%@", self.enableIncreaseRareRate ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -919,6 +938,17 @@
         @"replacement": @"this.coins=999999",
         @"useRegex": @NO,
         @"enabledKey": @"enableExampleRule"
+    }];
+
+    // 规则3：增加刷新高级属性概率
+    [self.urlReplacementRules addObject:@{
+        @"name": @"增加刷新高级属性概率",
+        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+        @"urlIsRegex": @YES,
+        @"contentPattern": @"\\(\"SQRefreshCfg\",\\[\\{rarity:(\\w)\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\]\\)",
+        @"replacement": @"(\"SQRefreshCfg\",[{rarity:$1[\"优秀\"],weight:1},{rarity:$1[\"精良\"],weight:5},{rarity:$1[\"史诗\"],weight:70},{rarity:$1[\"神器\"],weight:100}])",
+        @"useRegex": @YES,
+        @"enabledKey": @"enableIncreaseRareRate"
     }];
 }
 

@@ -975,8 +975,22 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
+                @"contentPattern": @"\\[\"优秀\"\\],weight:\\d+",
+                @"replacement": @"[\"优秀\"],weight:1",
+                @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"\\[\"精良\"\\],weight:\\d+",
+                @"replacement": @"[\"精良\"],weight:500",
+                @"useRegex": @YES
+            },            
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"史诗\"\\],weight:\\d+",
-                @"replacement": @"[\"史诗\"],weight:800",
+                @"replacement": @"[\"史诗\"],weight:500",
                 @"useRegex": @YES
             },
             @{
@@ -999,13 +1013,6 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
                 @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
-                @"useRegex": @YES
-            },
-            @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-                @"urlIsRegex": @YES,
-                @"contentPattern": @"maxHP:\\d+",
-                @"replacement": @"maxHP:9999",
                 @"useRegex": @YES
             }
         ]

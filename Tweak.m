@@ -15,6 +15,7 @@
 @property (nonatomic, assign) BOOL enableAdFreeRefresh;
 @property (nonatomic, assign) BOOL enableExampleRule;
 @property (nonatomic, assign) BOOL enableIncreaseRareRate;
+@property (nonatomic, assign) BOOL enableIncreaseHP;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 @property (nonatomic, assign) CGPoint lastPanelTranslation;
 + (instancetype)sharedInstance;
@@ -457,6 +458,7 @@
         _enableAdFreeRefresh = NO;
         _enableExampleRule = NO;
         _enableIncreaseRareRate = NO;
+        _enableIncreaseHP = NO;
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
         [self setupGlobalWakeGesture];
@@ -714,6 +716,15 @@
                       tag:1008];
     yOffset += rowHeight;
 
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"❤️"
+                      title:@"增加血量"
+                   subtitle:self.enableIncreaseHP ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableIncreaseHP
+                      tag:1009];
+    yOffset += rowHeight;
+
     [self addActionRowToPanel:contentView
                           y:yOffset
                         icon:@"📂"
@@ -866,6 +877,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1009: {
+            self.enableIncreaseHP = !self.enableIncreaseHP;
+            [self updateMenuSubtitleForTag:1009 text:self.enableIncreaseHP ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"❤️ 增加血量已%@", self.enableIncreaseHP ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -945,10 +964,21 @@
         @"name": @"增加刷新高级属性概率",
         @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
         @"urlIsRegex": @YES,
-        @"contentPattern": @"\\(\"SQRefreshCfg\",\\[\\{rarity:(\\w)\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\]\\)",
-        @"replacement": @"(\"SQRefreshCfg\",[{rarity:$1[\"优秀\"],weight:1},{rarity:$1[\"精良\"],weight:5},{rarity:$1[\"史诗\"],weight:70},{rarity:$1[\"神器\"],weight:100}])",
+        @"contentPattern": @"\\[\"神器\"\\],weight:\\d+",
+        @"replacement": @"[\"神器\"],weight:100",
         @"useRegex": @YES,
         @"enabledKey": @"enableIncreaseRareRate"
+    }];
+
+    // 规则4：增加血量
+    [self.urlReplacementRules addObject:@{
+        @"name": @"增加血量",
+        @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+        @"urlIsRegex": @YES,
+        @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
+        @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
+        @"useRegex": @YES,
+        @"enabledKey": @"enableIncreaseHP"
     }];
 }
 

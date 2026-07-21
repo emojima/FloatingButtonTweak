@@ -14,15 +14,17 @@
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableJSConsoleCapture;
 @property (nonatomic, assign) BOOL enableJSInject;
+@property (nonatomic, assign) BOOL enableAdFreeRefresh; // 🔥 新增：免广告刷新属性词条开关
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
 - (void)dismissMenuPanel;
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text;
-- (id)replaceTargetInObject:(id)obj;
-- (NSData *)replaceTargetInData:(NSData *)data;
-- (NSString *)replaceTargetInString:(NSString *)string;
+- (id)replaceTargetInObject:(id)obj forURL:(NSString *)url; // 🔥 新增URL参数
+- (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)url; // 🔥 新增URL参数
+- (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url; // 🔥 新增URL参数
 - (NSString *)targetKeyword;
+- (NSString *)targetURLPattern; // 🔥 新增：目标URL模式
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
@@ -454,6 +456,7 @@
         _currentMenuAlert = nil;
         _enableJSConsoleCapture = NO;
         _enableJSInject = NO;
+        _enableAdFreeRefresh = NO; // 🔥 默认关闭
         [self setupGlobalWakeGesture];
     }
     return self;
@@ -614,7 +617,8 @@
     scrollPanel.alwaysBounceVertical = YES;
     [keyWindow addSubview:scrollPanel];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 520)];
+    // 🔥 增加面板高度以容纳新功能
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 580)];
     panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
     panel.layer.cornerRadius = 16;
     panel.layer.masksToBounds = YES;
@@ -624,7 +628,7 @@
     [scrollPanel addSubview:panel];
 
     // 设置 contentSize 让 scrollView 可以滚动
-    scrollPanel.contentSize = CGSizeMake(panelWidth, 520);
+    scrollPanel.contentSize = CGSizeMake(panelWidth, 580);
 
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
@@ -696,15 +700,22 @@
                       tag:1005];
     yOffset += rowHeight;
 
-    NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
-    [self addActionRowToPanel:panel
-                          y:yOffset
-                        icon:@"🔄"
-                       title:@"字符串替换"
-                    subtitle:replaceStatus
-                       color:[UIColor colorWithRed:0.3 green:0.8 blue:0.4 alpha:1.0]
-                      action:@selector(showReplaceStatus)];
-    yOffset += rowHeight;
+    // 🔥 新增：免广告刷新属性词条 开关
+    NSString *adFreeStatus = self.enableAdFreeRefresh ? 
+        (self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已生效 %d 次", self.totalReplacedCount] : @"已开启") 
+        : @"当前：已关闭";
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"🎮"
+                      title:@"免广告刷新属性词条"
+                   subtitle:adFreeStatus
+                    isOn:self.enableAdFreeRefresh
+                      tag:1006];
+    yOffset += rowHeight + 8;
+
+    UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [panel addSubview:sep2];
 
     [self addActionRowToPanel:panel
                           y:yOffset
@@ -715,9 +726,9 @@
                       action:@selector(showLogFilePath)];
     yOffset += rowHeight + 8;
 
-    UIView *sep2 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
-    sep2.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [panel addSubview:sep2];
+    UIView *sep3 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sep3.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [panel addSubview:sep3];
 
     UIButton *hideFloatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     hideFloatBtn.frame = CGRectMake(16, yOffset, panelWidth - 32, 44);
@@ -843,6 +854,18 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        // 🔥 新增：免广告刷新属性词条开关处理
+        case 1006: {
+            self.enableAdFreeRefresh = !self.enableAdFreeRefresh;
+            NSString *statusText = self.enableAdFreeRefresh ? 
+                (self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已生效 %d 次", self.totalReplacedCount] : @"已开启") 
+                : @"当前：已关闭";
+            [self updateMenuSubtitleForTag:1006 text:statusText];
+            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条已%@", self.enableAdFreeRefresh ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -861,12 +884,6 @@
             break;
         }
     }
-}
-
-- (void)showReplaceStatus {
-    NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
-    [self showMessage:@"替换状态" message:msg];
-    [self dismissMenuPanel];
 }
 
 - (void)showLogFilePath {
@@ -904,6 +921,11 @@
 
 #pragma mark - ========== 字符串替换工具 ==========
 
+// 🔥 目标URL模式
+- (NSString *)targetURLPattern {
+    return @"bdpfile://bd.timor.wk/bdpbase/bdpdir/2/subpackages/main/game.js";
+}
+
 - (NSString *)targetKeyword {
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
@@ -939,18 +961,31 @@
     return [self stringContainsTarget:str];
 }
 
-- (NSString *)replaceTargetInString:(NSString *)string {
+// 🔥 新增：带URL过滤的字符串替换
+- (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url {
     if (!string || string.length < 20) return string;
+    
+    // 🔥 检查功能是否开启
+    if (!self.enableAdFreeRefresh) {
+        return string;
+    }
+    
+    // 🔥 检查URL是否匹配目标模式
+    NSString *targetURL = [self targetURLPattern];
+    if (!url || ![url isEqualToString:targetURL]) {
+        return string;
+    }
+    
     NSString *result = string;
 
-    // 1. 原有的字符串替换逻辑
+    // 1. 字符串替换逻辑（仅对匹配URL生效）
     NSString *target = [self targetKeyword];
     NSString *replacement = [self replacementString];
     if ([result containsString:target]) {
         NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
         if (![modified isEqualToString:result]) {
             self.totalReplacedCount++;
-            NSString *log = [NSString stringWithFormat:@"✅ NSString 替换成功 (第 %d 次)", self.totalReplacedCount];
+            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount, url];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             result = modified;
@@ -975,20 +1010,33 @@
     return result;
 }
 
-- (NSData *)replaceTargetInData:(NSData *)data {
+// 🔥 新增：带URL过滤的Data替换
+- (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)url {
     if (!data || data.length < 20) return data;
+    
+    // 🔥 检查功能是否开启
+    if (!self.enableAdFreeRefresh) {
+        return data;
+    }
+    
+    // 🔥 检查URL是否匹配目标模式
+    NSString *targetURL = [self targetURLPattern];
+    if (!url || ![url isEqualToString:targetURL]) {
+        return data;
+    }
+    
     NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!str) {
         str = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
     }
     if (!str || str.length < 20) return data;
 
-    NSString *modified = [self replaceTargetInString:str];
+    NSString *modified = [self replaceTargetInString:str forURL:url];
     if (![modified isEqualToString:str]) {
         NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
         if (newData) {
-            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 (第 %d 次) | 原长度:%lu -> 新长度:%lu", 
-                           self.totalReplacedCount, (unsigned long)data.length, (unsigned long)newData.length];
+            NSString *log = [NSString stringWithFormat:@"🎮 NSData 替换成功 (第 %d 次) | URL=%@ | 原长度:%lu -> 新长度:%lu", 
+                           self.totalReplacedCount, url, (unsigned long)data.length, (unsigned long)newData.length];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             return newData;
@@ -997,15 +1045,29 @@
     return data;
 }
 
-- (id)replaceTargetInObject:(id)obj {
+// 🔥 新增：带URL过滤的Object替换
+- (id)replaceTargetInObject:(id)obj forURL:(NSString *)url {
     if (!obj) return obj;
     if ([obj isKindOfClass:[NSString class]]) {
-        return [self replaceTargetInString:(NSString *)obj];
+        return [self replaceTargetInString:(NSString *)obj forURL:url];
     }
     if ([obj isKindOfClass:[NSData class]]) {
-        return [self replaceTargetInData:(NSData *)obj];
+        return [self replaceTargetInData:(NSData *)obj forURL:url];
     }
     return obj;
+}
+
+// 🔥 兼容旧接口（无URL过滤，默认不执行替换）
+- (NSString *)replaceTargetInString:(NSString *)string {
+    return [self replaceTargetInString:string forURL:nil];
+}
+
+- (NSData *)replaceTargetInData:(NSData *)data {
+    return [self replaceTargetInData:data forURL:nil];
+}
+
+- (id)replaceTargetInObject:(id)obj {
+    return [self replaceTargetInObject:obj forURL:nil];
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
@@ -1123,7 +1185,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
 
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 
-            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data];
+            // 🔥 使用带URL过滤的替换方法
+            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data forURL:taskUrl];
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
             BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
 

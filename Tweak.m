@@ -12,8 +12,6 @@
 @property (nonatomic, assign) int totalHookedMethods;
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
-@property (nonatomic, assign) BOOL enableJSConsoleCapture;
-@property (nonatomic, assign) BOOL enableJSInject;
 @property (nonatomic, assign) BOOL enableAdFreeRefresh;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 + (instancetype)sharedInstance;
@@ -21,12 +19,6 @@
 - (void)ensureButtonOnTop;
 - (void)dismissMenuPanel;
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text;
-- (id)replaceTargetInObject:(id)obj;
-- (NSData *)replaceTargetInData:(NSData *)data;
-- (NSString *)replaceTargetInString:(NSString *)string;
-- (NSString *)targetKeyword;
-- (BOOL)stringContainsTarget:(NSString *)string;
-- (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
 - (UIWindow *)topmostWindow;
 - (NSString *)applyURLSpecificReplacementsToString:(NSString *)string forURL:(NSString *)urlString;
@@ -456,8 +448,6 @@
         _totalReplacedCount = 0;
         _totalHookedMethods = 0;
         _currentMenuAlert = nil;
-        _enableJSConsoleCapture = NO;
-        _enableJSInject = NO;
         _enableAdFreeRefresh = NO;
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
@@ -621,7 +611,7 @@
     scrollPanel.alwaysBounceVertical = YES;
     [keyWindow addSubview:scrollPanel];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 580)];
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 420)];
     panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:0.98];
     panel.layer.cornerRadius = 16;
     panel.layer.masksToBounds = YES;
@@ -631,7 +621,7 @@
     [scrollPanel addSubview:panel];
 
     // 设置 contentSize 让 scrollView 可以滚动
-    scrollPanel.contentSize = CGSizeMake(panelWidth, 580);
+    scrollPanel.contentSize = CGSizeMake(panelWidth, 420);
 
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
     titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
@@ -841,22 +831,6 @@
             BOOL newState = ![[LogWindowManager sharedInstance] logToFileEnabled];
             [[LogWindowManager sharedInstance] setLogToFileEnabled:newState];
             [self updateMenuSubtitleForTag:1003 text:newState ? @"当前：已开启" : @"当前：已关闭"];
-            break;
-        }
-        case 1004: {
-            self.enableJSConsoleCapture = !self.enableJSConsoleCapture;
-            [self updateMenuSubtitleForTag:1004 text:self.enableJSConsoleCapture ? @"当前：已开启" : @"当前：已关闭"];
-            NSString *log = [NSString stringWithFormat:@"🌐 JS Console 捕获已%@", self.enableJSConsoleCapture ? @"开启" : @"关闭"];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            break;
-        }
-        case 1005: {
-            self.enableJSInject = !self.enableJSInject;
-            [self updateMenuSubtitleForTag:1005 text:self.enableJSInject ? @"当前：已开启" : @"当前：已关闭"];
-            NSString *log = [NSString stringWithFormat:@"💉 JS 自动注入已%@", self.enableJSInject ? @"开启" : @"关闭"];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
         case 1006: {
@@ -1192,33 +1166,10 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 }
             }
 
-            // ========== 拦截 tweak://log URL Scheme 消息 ==========
-            if ([taskUrl hasPrefix:@"tweak://log"]) {
-                if ([[FloatingButtonManager sharedInstance] enableJSConsoleCapture]) {
-                    NSURLComponents *components = [NSURLComponents componentsWithString:taskUrl];
-                    NSString *msg = nil;
-                    for (NSURLQueryItem *item in components.queryItems) {
-                        if ([item.name isEqualToString:@"msg"]) {
-                            msg = item.value;
-                            break;
-                        }
-                    }
-                    if (msg && msg.length > 0) {
-                        NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
-                        NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
-                        NSLog(@"[Tweak] %@", jsLog);
-                        [[LogWindowManager sharedInstance] appendLog:jsLog];
-                        [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
-                    }
-                }
-                // 拦截 tweak://log 请求，不继续传递给原始实现，避免影响页面
-                return;
-            }
-
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 
-            // 先进行URL特定的替换（支持正则，按规则表匹配）
-            NSData *urlSpecificData = data;
+            // 进行URL特定的替换（支持正则，按规则表匹配）
+            NSData *modifiedData = data;
             NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
             if (!dataStr) {
                 dataStr = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
@@ -1228,31 +1179,25 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 if (![urlModified isEqualToString:dataStr]) {
                     NSData *newData = [urlModified dataUsingEncoding:NSUTF8StringEncoding];
                     if (newData) {
-                        urlSpecificData = newData;
+                        modifiedData = newData;
                     }
                 }
             }
 
-            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:urlSpecificData];
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
-            BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
 
             NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
             NSString *dataFull = data ? [data description] : @"(nil)";
 
-            NSString *fullLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ %@ | data=%@",
-                             hasTarget ? @"🎯" : @"📋",
+            NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ | data=%@",
                              contentType,
                              taskUrl,
-                             hasTarget ? @"发现目标" : @"",
                              didReplace ? @"[已替换]" : @"",
                              dataFull];
 
-            NSString *displayLog = [NSString stringWithFormat:@"%@ [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ %@ | data=%@",
-                             hasTarget ? @"🎯" : @"📋",
+            NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ | data=%@",
                              contentType,
                              taskUrl,
-                             hasTarget ? @"发现目标" : @"",
                              didReplace ? @"[已替换]" : @"",
                              dataPreview];
 
@@ -1260,9 +1205,9 @@ static void hookURLSchemeTask(id urlSchemeTask) {
             [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
 
             if (data && data.length > 0) {
-                NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+                NSString *dataStr2 = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
                 NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE][Type=%@] URL=%@ | LENGTH=%lu | CONTENT=%@",
-                                       contentType, taskUrl, (unsigned long)data.length, dataStr ?: @"(binary data)"];
+                                       contentType, taskUrl, (unsigned long)data.length, dataStr2 ?: @"(binary data)"];
                 [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
             }
 
@@ -1317,32 +1262,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     }
 
     hookURLSchemeTask(urlSchemeTask);
-
-    // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
-    if ([urlStr hasPrefix:@"tweak://log"]) {
-        if ([[FloatingButtonManager sharedInstance] enableJSConsoleCapture]) {
-            NSURLComponents *components = [NSURLComponents componentsWithString:urlStr];
-            NSString *msg = nil;
-            for (NSURLQueryItem *item in components.queryItems) {
-                if ([item.name isEqualToString:@"msg"]) {
-                    msg = item.value;
-                    break;
-                }
-            }
-            if (msg && msg.length > 0) {
-                NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
-                NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
-                NSLog(@"[Tweak] %@", jsLog);
-                [[LogWindowManager sharedInstance] appendLog:jsLog];
-                [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
-            }
-        }
-        NSString *log = [NSString stringWithFormat:@"🌐 [拦截] tweak://log URL=%@", urlStr];
-        NSLog(@"[Tweak] %@", log);
-        [[LogWindowManager sharedInstance] appendLog:log];
-        g_inHook = NO;
-        return;  // 直接返回，不调用原始实现
-    }
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 

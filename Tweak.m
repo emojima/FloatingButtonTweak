@@ -27,14 +27,8 @@
 - (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url;
 - (NSString *)targetKeyword;
 - (NSString *)targetURLPattern;
-- (NSString *)refreshRatePatternExcellent; // 🔥 新增：优秀概率正则
-- (NSString *)refreshRatePatternGood; // 🔥 新增：精良概率正则
-- (NSString *)refreshRatePatternEpic; // 🔥 新增：史诗概率正则
-- (NSString *)refreshRatePatternLegendary; // 🔥 新增：神器概率正则
-- (NSString *)refreshRateReplacementExcellent; // 🔥 新增：优秀概率替换
-- (NSString *)refreshRateReplacementGood; // 🔥 新增：精良概率替换
-- (NSString *)refreshRateReplacementEpic; // 🔥 新增：史诗概率替换
-- (NSString *)refreshRateReplacementLegendary; // 🔥 新增：神器概率替换
+- (NSString *)refreshRatePattern; // 🔥 新增：概率正则模式
+- (NSString *)refreshRateReplacement; // 🔥 新增：概率替换字符串
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
@@ -1031,38 +1025,14 @@
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
-// 🔥 新增：刷新概率正则匹配模式（分别匹配四个品质）
-- (NSString *)refreshRatePatternExcellent {
-    return @"\\[\"优秀\"\\],weight:\\d+";
+// 🔥 新增：刷新概率正则匹配模式
+- (NSString *)refreshRatePattern {
+    return @"(\"SQRefreshCfg\",\\[\\{rarity:\\w\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\])";
 }
 
-- (NSString *)refreshRatePatternGood {
-    return @"\\[\"精良\"\\],weight:\\d+";
-}
-
-- (NSString *)refreshRatePatternEpic {
-    return @"\\[\"史诗\"\\],weight:\\d+";
-}
-
-- (NSString *)refreshRatePatternLegendary {
-    return @"\\[\"神器\"\\],weight:\\d+";
-}
-
-// 🔥 新增：刷新概率替换字符串（分别替换四个品质）
-- (NSString *)refreshRateReplacementExcellent {
-    return @"[\"优秀\"],weight:1";
-}
-
-- (NSString *)refreshRateReplacementGood {
-    return @"[\"精良\"],weight:10";
-}
-
-- (NSString *)refreshRateReplacementEpic {
-    return @"[\"史诗\"],weight:70";
-}
-
-- (NSString *)refreshRateReplacementLegendary {
-    return @"[\"神器\"],weight:100";
+// 🔥 新增：刷新概率替换字符串
+- (NSString *)refreshRateReplacement {
+    return @"(\"SQRefreshCfg\",[{rarity:a[\"优秀\"],weight:1},{rarity:a[\"精良\"],weight:5},{rarity:a[\"史诗\"],weight:50},{rarity:a[\"神器\"],weight:100}])";
 }
 
 - (NSString *)jsInjectCode {
@@ -1122,57 +1092,20 @@
         }
     }
 
-    // 🔥 2. 增加刷新属性词条概率（分别匹配替换四个品质）
+    // 🔥 2. 增加刷新属性词条概率（正则匹配替换）
     if (self.enableRefreshRate) {
-        BOOL anyModified = NO;
-        NSString *modified = result;
-
-        // 优秀 -> weight:1
-        NSRegularExpression *regexExcellent = [NSRegularExpression regularExpressionWithPattern:[self refreshRatePatternExcellent] options:0 error:nil];
-        if (regexExcellent) {
-            NSString *newModified = [regexExcellent stringByReplacingMatchesInString:modified options:0 range:NSMakeRange(0, modified.length) withTemplate:[self refreshRateReplacementExcellent]];
-            if (![newModified isEqualToString:modified]) {
-                anyModified = YES;
-                modified = newModified;
+        NSString *pattern = [self refreshRatePattern];
+        NSString *replacement = [self refreshRateReplacement];
+        NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+        if (regex) {
+            NSString *modified = [regex stringByReplacingMatchesInString:result options:0 range:NSMakeRange(0, result.length) withTemplate:replacement];
+            if (![modified isEqualToString:result]) {
+                self.totalReplacedCount2++;
+                NSString *log = [NSString stringWithFormat:@"🎯 增加刷新属性词条概率替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount2, url];
+                NSLog(@"[Tweak] %@", log);
+                [[LogWindowManager sharedInstance] appendLog:log];
+                result = modified;
             }
-        }
-
-        // 精良 -> weight:10
-        NSRegularExpression *regexGood = [NSRegularExpression regularExpressionWithPattern:[self refreshRatePatternGood] options:0 error:nil];
-        if (regexGood) {
-            NSString *newModified = [regexGood stringByReplacingMatchesInString:modified options:0 range:NSMakeRange(0, modified.length) withTemplate:[self refreshRateReplacementGood]];
-            if (![newModified isEqualToString:modified]) {
-                anyModified = YES;
-                modified = newModified;
-            }
-        }
-
-        // 史诗 -> weight:70
-        NSRegularExpression *regexEpic = [NSRegularExpression regularExpressionWithPattern:[self refreshRatePatternEpic] options:0 error:nil];
-        if (regexEpic) {
-            NSString *newModified = [regexEpic stringByReplacingMatchesInString:modified options:0 range:NSMakeRange(0, modified.length) withTemplate:[self refreshRateReplacementEpic]];
-            if (![newModified isEqualToString:modified]) {
-                anyModified = YES;
-                modified = newModified;
-            }
-        }
-
-        // 神器 -> weight:100
-        NSRegularExpression *regexLegendary = [NSRegularExpression regularExpressionWithPattern:[self refreshRatePatternLegendary] options:0 error:nil];
-        if (regexLegendary) {
-            NSString *newModified = [regexLegendary stringByReplacingMatchesInString:modified options:0 range:NSMakeRange(0, modified.length) withTemplate:[self refreshRateReplacementLegendary]];
-            if (![newModified isEqualToString:modified]) {
-                anyModified = YES;
-                modified = newModified;
-            }
-        }
-
-        if (anyModified) {
-            self.totalReplacedCount2++;
-            NSString *log = [NSString stringWithFormat:@"🎯 增加刷新属性词条概率替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount2, url];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            result = modified;
         }
     }
 

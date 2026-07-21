@@ -27,8 +27,14 @@
 - (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)url;
 - (NSString *)targetKeyword;
 - (NSString *)targetURLPattern;
-- (NSString *)refreshRatePattern; // 🔥 新增：概率正则模式
-- (NSString *)refreshRateReplacement; // 🔥 新增：概率替换字符串
+- (NSString *)refreshRatePatternExcellent; // 🔥 新增：优秀概率正则
+- (NSString *)refreshRatePatternGood; // 🔥 新增：精良概率正则
+- (NSString *)refreshRatePatternEpic; // 🔥 新增：史诗概率正则
+- (NSString *)refreshRatePatternLegendary; // 🔥 新增：神器概率正则
+- (NSString *)refreshRateReplacementExcellent; // 🔥 新增：优秀概率替换
+- (NSString *)refreshRateReplacementGood; // 🔥 新增：精良概率替换
+- (NSString *)refreshRateReplacementEpic; // 🔥 新增：史诗概率替换
+- (NSString *)refreshRateReplacementLegendary; // 🔥 新增：神器概率替换
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
@@ -1025,9 +1031,21 @@
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
-// 🔥 新增：刷新概率正则匹配模式
-- (NSString *)refreshRatePattern {
-    return @"(\"SQRefreshCfg\",\\[\\{rarity:\\w\\[\"优秀\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"精良\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"史诗\"\\],weight:\\d+\\},\\{rarity:\\w\\[\"神器\"\\],weight:\\d+\\}\\])";
+// 🔥 新增：刷新概率正则匹配模式（分别匹配四个品质）
+- (NSString *)refreshRatePatternExcellent {
+    return @"\[\"优秀\"\],weight:\d+";
+}
+
+- (NSString *)refreshRatePatternGood {
+    return @"\[\"精良\"\],weight:\d+";
+}
+
+- (NSString *)refreshRatePatternEpic {
+    return @"\[\"史诗\"\],weight:\d+";
+}
+
+- (NSString *)refreshRatePatternLegendary {
+    return @"\[\"神器\"\],weight:\d+";
 }
 
 // 🔥 新增：刷新概率替换字符串（分别替换四个品质）

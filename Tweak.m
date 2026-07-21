@@ -14,22 +14,23 @@
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableJSConsoleCapture;
 @property (nonatomic, assign) BOOL enableJSInject;
-@property (nonatomic, assign) BOOL enableAdFreeRefresh;  // 免广告刷新属性词条开关
+@property (nonatomic, assign) BOOL enableAdFreeRefresh;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 + (instancetype)sharedInstance;
 - (void)showFloatingButton;
 - (void)ensureButtonOnTop;
 - (void)dismissMenuPanel;
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text;
-- (id)replaceTargetInObject:(id)obj forURL:(NSString *)urlString;
-- (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)urlString;
-- (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)urlString;
+- (id)replaceTargetInObject:(id)obj;
+- (NSData *)replaceTargetInData:(NSData *)data;
+- (NSString *)replaceTargetInString:(NSString *)string;
 - (NSString *)targetKeyword;
-- (NSString *)replacementString;
-- (NSString *)targetGameJSURL;
 - (BOOL)stringContainsTarget:(NSString *)string;
 - (BOOL)dataContainsTarget:(NSData *)data;
 - (void)enableAllHooks;
 - (UIWindow *)topmostWindow;
+- (NSString *)applyURLSpecificReplacementsToString:(NSString *)string forURL:(NSString *)urlString;
+- (void)registerDefaultURLReplacementRules;
 @end
 
 @interface LogWindowManager : NSObject
@@ -206,6 +207,7 @@
 
     self.logContainerView.hidden = NO;
     self.isVisible = YES;
+    // 显示日志窗口后自动关闭功能面板（仅在面板已打开时）
     UIWindow *kw2 = [self topmostWindow];
     if (kw2 && [kw2 viewWithTag:99997]) {
         [[FloatingButtonManager sharedInstance] dismissMenuPanel];
@@ -216,6 +218,7 @@
     self.logContainerView.hidden = YES;
     self.isVisible = NO;
     [[FloatingButtonManager sharedInstance] updateMenuSubtitleForTag:1001 text:@"当前：已隐藏"];
+    // 同步更新功能面板中开关按钮的 UI 状态
     UIWindow *keyWindow = [[FloatingButtonManager sharedInstance] topmostWindow];
     if (keyWindow) {
         UIView *panel = [keyWindow viewWithTag:99998];
@@ -395,17 +398,10 @@
     return [NSString stringWithFormat:@"%@...(%lu)", [string substringToIndex:maxLength], (unsigned long)(string.length - maxLength)];
 }
 
-- (NSString *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
-    if (!data || data.length == 0) return @"(nil)";
-    if (data.length <= maxLength) {
-        NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-        if (str) return str;
-        return [data description];
-    }
-    NSData *truncated = [data subdataWithRange:NSMakeRange(0, maxLength)];
-    NSString *str = [[NSString alloc] initWithData:truncated encoding:NSUTF8StringEncoding];
-    if (str) return [NSString stringWithFormat:@"%@...(%lu bytes)", str, (unsigned long)data.length];
-    return [NSString stringWithFormat:@"[Data %lu bytes]", (unsigned long)data.length];
+- (NSData *)truncateData:(NSData *)data maxLength:(NSInteger)maxLength {
+    if (!data || data.length == 0) return data;
+    if (data.length <= maxLength) return data;
+    return [data subdataWithRange:NSMakeRange(0, maxLength)];
 }
 
 - (NSString *)objectDescription:(id)obj maxLength:(NSInteger)maxLength {
@@ -463,6 +459,8 @@
         _enableJSConsoleCapture = NO;
         _enableJSInject = NO;
         _enableAdFreeRefresh = NO;
+        _urlReplacementRules = [NSMutableArray array];
+        [self registerDefaultURLReplacementRules];
         [self setupGlobalWakeGesture];
     }
     return self;
@@ -612,6 +610,7 @@
     CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
     CGFloat panelY = (keyWindow.bounds.size.height - maxPanelHeight) / 2;
 
+    // 创建 UIScrollView 作为面板容器，支持滚动
     UIScrollView *scrollPanel = [[UIScrollView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, maxPanelHeight)];
     scrollPanel.backgroundColor = [UIColor clearColor];
     scrollPanel.layer.cornerRadius = 16;
@@ -631,6 +630,7 @@
     panel.tag = 99998;
     [scrollPanel addSubview:panel];
 
+    // 设置 contentSize 让 scrollView 可以滚动
     scrollPanel.contentSize = CGSizeMake(panelWidth, 580);
 
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 48)];
@@ -654,21 +654,6 @@
 
     CGFloat yOffset = 64;
     CGFloat rowHeight = 56;
-    
-    // 免广告刷新属性词条开关
-    [self addSwitchRowToPanel:panel
-                         y:yOffset
-                       icon:@"🎮"
-                      title:@"免广告刷新属性词条"
-                   subtitle:self.enableAdFreeRefresh ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:self.enableAdFreeRefresh
-                      tag:1000];
-    yOffset += rowHeight;
-
-    UIView *sep0 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
-    sep0.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [panel addSubview:sep0];
-
     [self addSwitchRowToPanel:panel
                          y:yOffset
                        icon:@"📋"
@@ -718,11 +703,20 @@
                       tag:1005];
     yOffset += rowHeight;
 
+    [self addSwitchRowToPanel:panel
+                         y:yOffset
+                       icon:@"🎮"
+                      title:@"免广告刷新属性词条"
+                   subtitle:self.enableAdFreeRefresh ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableAdFreeRefresh
+                      tag:1006];
+    yOffset += rowHeight;
+
     NSString *replaceStatus = self.totalReplacedCount > 0 ? [NSString stringWithFormat:@"已替换 %d 次", self.totalReplacedCount] : @"未触发替换";
     [self addActionRowToPanel:panel
                           y:yOffset
                         icon:@"🔄"
-                       title:@"替换状态"
+                       title:@"字符串替换"
                     subtitle:replaceStatus
                        color:[UIColor colorWithRed:0.3 green:0.8 blue:0.4 alpha:1.0]
                       action:@selector(showReplaceStatus)];
@@ -830,14 +824,6 @@
 
 - (void)switchValueChanged:(UISwitch *)sender {
     switch (sender.tag) {
-        case 1000: {
-            self.enableAdFreeRefresh = !self.enableAdFreeRefresh;
-            [self updateMenuSubtitleForTag:1000 text:self.enableAdFreeRefresh ? @"当前：已开启" : @"当前：已关闭"];
-            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条已%@", self.enableAdFreeRefresh ? @"开启" : @"关闭"];
-            NSLog(@"[Tweak] %@", log);
-            [[LogWindowManager sharedInstance] appendLog:log];
-            break;
-        }
         case 1001: {
             [[LogWindowManager sharedInstance] toggleLogWindow];
             break;
@@ -873,6 +859,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1006: {
+            self.enableAdFreeRefresh = !self.enableAdFreeRefresh;
+            [self updateMenuSubtitleForTag:1006 text:self.enableAdFreeRefresh ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条已%@", self.enableAdFreeRefresh ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -894,7 +888,7 @@
 }
 
 - (void)showReplaceStatus {
-    NSString *msg = [NSString stringWithFormat:@"免广告刷新属性词条\n已累计替换 %d 次", self.totalReplacedCount];
+    NSString *msg = [NSString stringWithFormat:@"字符串替换已激活\n已累计替换 %d 次", self.totalReplacedCount];
     [self showMessage:@"替换状态" message:msg];
     [self dismissMenuPanel];
 }
@@ -938,14 +932,6 @@
     return @".curLevel)?this.freeRefreshNum=2:this.freeRefreshNum=0";
 }
 
-- (NSString *)replacementString {
-    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
-}
-
-- (NSString *)targetGameJSURL {
-    return @"bdpfile://bd.timor.wk/bdpbase/bdpdir/2/subpackages/main/game.js";
-}
-
 - (NSString *)jsInjectCode {
     return @"function tweakLog(message) { var encoded = encodeURIComponent(message); var img = new Image(); img.src = 'tweak://log?msg=' + encoded; } var originalLog = console.log; console.log = function() { var args = Array.prototype.slice.call(arguments); var msg = args.map(function(a) { try { return JSON.stringify(a); } catch(e) { return String(a); } }).join(' '); tweakLog(msg); originalLog.apply(console, arguments); };";
 }
@@ -956,6 +942,76 @@
 
 - (NSString *)jsInjectReplacement {
     return [NSString stringWithFormat:@"%@%@", [self jsInjectCode], [self jsInjectMarker]];
+}
+
+- (NSString *)replacementString {
+    return @".curLevel),this.refreshNum=100,this.freeRefreshNum=100";
+}
+
+- (void)registerDefaultURLReplacementRules {
+    // 规则1：免广告刷新属性词条
+    [self.urlReplacementRules addObject:@{
+        @"name": @"免广告刷新属性词条",
+        @"urlPattern": @"bdpfile://bd\.timor\.wk/bdpbase/bdpdir/2/subpackages/main/game\.js",
+        @"urlIsRegex": @YES,
+        @"contentPattern": @"\.curLevel\)\?this\.freeRefreshNum=2:this\.freeRefreshNum=0",
+        @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
+        @"useRegex": @YES,
+        @"enabledKey": @"enableAdFreeRefresh"
+    }];
+}
+
+- (NSString *)applyURLSpecificReplacementsToString:(NSString *)string forURL:(NSString *)urlString {
+    if (!string || string.length < 1) return string;
+    NSString *result = string;
+
+    for (NSDictionary *rule in self.urlReplacementRules) {
+        NSString *enabledKey = rule[@"enabledKey"];
+        if (!enabledKey || ![enabledKey isKindOfClass:[NSString class]]) continue;
+        BOOL enabled = [[self valueForKey:enabledKey] boolValue];
+        if (!enabled) continue;
+
+        // URL匹配（支持正则或普通包含匹配）
+        NSString *urlPattern = rule[@"urlPattern"];
+        BOOL urlIsRegex = [rule[@"urlIsRegex"] boolValue];
+        BOOL urlMatched = NO;
+
+        if (urlIsRegex) {
+            NSRegularExpression *urlRegex = [NSRegularExpression regularExpressionWithPattern:urlPattern options:0 error:nil];
+            NSUInteger matchCount = [urlRegex numberOfMatchesInString:urlString options:0 range:NSMakeRange(0, urlString.length)];
+            urlMatched = (matchCount > 0);
+        } else {
+            urlMatched = [urlString containsString:urlPattern];
+        }
+
+        if (!urlMatched) continue;
+
+        // 内容匹配和替换（支持正则或普通字符串替换）
+        NSString *contentPattern = rule[@"contentPattern"];
+        NSString *replacement = rule[@"replacement"];
+        BOOL useRegex = [rule[@"useRegex"] boolValue];
+        NSString *modified = nil;
+
+        if (useRegex) {
+            NSRegularExpression *contentRegex = [NSRegularExpression regularExpressionWithPattern:contentPattern options:0 error:nil];
+            modified = [contentRegex stringByReplacingMatchesInString:result options:0 range:NSMakeRange(0, result.length) withTemplate:replacement];
+        } else {
+            if ([result containsString:contentPattern]) {
+                modified = [result stringByReplacingOccurrencesOfString:contentPattern withString:replacement];
+            }
+        }
+
+        if (modified && ![modified isEqualToString:result]) {
+            self.totalReplacedCount++;
+            NSString *ruleName = rule[@"name"] ?: @"URL特定替换";
+            NSString *log = [NSString stringWithFormat:@"✅ [%@] 替换成功 (第 %d 次) URL=%@", ruleName, self.totalReplacedCount, urlString];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            result = modified;
+        }
+    }
+
+    return result;
 }
 
 - (BOOL)stringContainsTarget:(NSString *)string {
@@ -973,23 +1029,21 @@
     return [self stringContainsTarget:str];
 }
 
-- (NSString *)replaceTargetInString:(NSString *)string forURL:(NSString *)urlString {
+- (NSString *)replaceTargetInString:(NSString *)string {
     if (!string || string.length < 20) return string;
     NSString *result = string;
 
-    // 1. 免广告刷新属性词条替换：仅在目标URL且开关开启时执行
-    if (self.enableAdFreeRefresh && urlString && [urlString isEqualToString:[self targetGameJSURL]]) {
-        NSString *target = [self targetKeyword];
-        NSString *replacement = [self replacementString];
-        if ([result containsString:target]) {
-            NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
-            if (![modified isEqualToString:result]) {
-                self.totalReplacedCount++;
-                NSString *log = [NSString stringWithFormat:@"🎮 免广告刷新属性词条替换成功 (第 %d 次) | URL=%@", self.totalReplacedCount, urlString];
-                NSLog(@"[Tweak] %@", log);
-                [[LogWindowManager sharedInstance] appendLog:log];
-                result = modified;
-            }
+    // 1. 原有的字符串替换逻辑
+    NSString *target = [self targetKeyword];
+    NSString *replacement = [self replacementString];
+    if ([result containsString:target]) {
+        NSString *modified = [result stringByReplacingOccurrencesOfString:target withString:replacement];
+        if (![modified isEqualToString:result]) {
+            self.totalReplacedCount++;
+            NSString *log = [NSString stringWithFormat:@"✅ NSString 替换成功 (第 %d 次)", self.totalReplacedCount];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            result = modified;
         }
     }
 
@@ -1011,7 +1065,7 @@
     return result;
 }
 
-- (NSData *)replaceTargetInData:(NSData *)data forURL:(NSString *)urlString {
+- (NSData *)replaceTargetInData:(NSData *)data {
     if (!data || data.length < 20) return data;
     NSString *str = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!str) {
@@ -1019,12 +1073,12 @@
     }
     if (!str || str.length < 20) return data;
 
-    NSString *modified = [self replaceTargetInString:str forURL:urlString];
+    NSString *modified = [self replaceTargetInString:str];
     if (![modified isEqualToString:str]) {
         NSData *newData = [modified dataUsingEncoding:NSUTF8StringEncoding];
         if (newData) {
-            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 (第 %d 次) | URL=%@ | 原长度:%lu -> 新长度:%lu", 
-                           self.totalReplacedCount, urlString, (unsigned long)data.length, (unsigned long)newData.length];
+            NSString *log = [NSString stringWithFormat:@"✅ NSData 替换成功 (第 %d 次) | 原长度:%lu -> 新长度:%lu", 
+                           self.totalReplacedCount, (unsigned long)data.length, (unsigned long)newData.length];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             return newData;
@@ -1033,13 +1087,13 @@
     return data;
 }
 
-- (id)replaceTargetInObject:(id)obj forURL:(NSString *)urlString {
+- (id)replaceTargetInObject:(id)obj {
     if (!obj) return obj;
     if ([obj isKindOfClass:[NSString class]]) {
-        return [self replaceTargetInString:(NSString *)obj forURL:urlString];
+        return [self replaceTargetInString:(NSString *)obj];
     }
     if ([obj isKindOfClass:[NSData class]]) {
-        return [self replaceTargetInData:(NSData *)obj forURL:urlString];
+        return [self replaceTargetInData:(NSData *)obj];
     }
     return obj;
 }
@@ -1074,9 +1128,8 @@ static _Thread_local BOOL g_inHook = NO;
 #pragma mark - ========== 动态拦截 WKURLSchemeTask 响应数据 ==========
 
 static const char *kTaskContentTypeKey = "kTaskContentTypeKey";
-static const char *kTaskURLKey = "kTaskURLKey";
 
-static void hookURLSchemeTask(id urlSchemeTask, NSString *taskURLString) {
+static void hookURLSchemeTask(id urlSchemeTask) {
     if (!urlSchemeTask) return;
 
     Class taskClass = [urlSchemeTask class];
@@ -1154,13 +1207,29 @@ static void hookURLSchemeTask(id urlSchemeTask, NSString *taskURLString) {
                         [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
                     }
                 }
+                // 拦截 tweak://log 请求，不继续传递给原始实现，避免影响页面
                 return;
             }
 
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 
-            // 传入URL进行条件替换
-            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:data forURL:taskUrl];
+            // 先进行URL特定的替换（支持正则，按规则表匹配）
+            NSData *urlSpecificData = data;
+            NSString *dataStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            if (!dataStr) {
+                dataStr = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+            }
+            if (dataStr) {
+                NSString *urlModified = [[FloatingButtonManager sharedInstance] applyURLSpecificReplacementsToString:dataStr forURL:taskUrl];
+                if (![urlModified isEqualToString:dataStr]) {
+                    NSData *newData = [urlModified dataUsingEncoding:NSUTF8StringEncoding];
+                    if (newData) {
+                        urlSpecificData = newData;
+                    }
+                }
+            }
+
+            NSData *modifiedData = [[FloatingButtonManager sharedInstance] replaceTargetInData:urlSpecificData];
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
             BOOL hasTarget = data ? [[FloatingButtonManager sharedInstance] dataContainsTarget:data] : NO;
 
@@ -1243,7 +1312,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         }
     }
 
-    hookURLSchemeTask(urlSchemeTask, urlStr);
+    hookURLSchemeTask(urlSchemeTask);
 
     // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
     if ([urlStr hasPrefix:@"tweak://log"]) {
@@ -1268,7 +1337,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         NSLog(@"[Tweak] %@", log);
         [[LogWindowManager sharedInstance] appendLog:log];
         g_inHook = NO;
-        return;
+        return;  // 直接返回，不调用原始实现
     }
 
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];

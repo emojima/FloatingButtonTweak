@@ -986,8 +986,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"if(!(null!=n&&u.rarity<n)){",
-                @"replacement": @"if(!(null!=n&&u.rarity<3)){",
+                @"contentPattern": @"p>0&&l.push({id:u.id,weight:p})",
+                @"replacement": @"p>0&&(u.id===15||u.id>31)&&l.push({id:u.id,weight:p})",
                 @"useRegex": @NO
             }
         ]

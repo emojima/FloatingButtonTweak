@@ -986,8 +986,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"var y=c[m];a.add(y),n.push(y)",
-                @"replacement": @"var y=c[m];a.add(y),n.push(y);new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(JSON.stringify(y));",
+                @"contentPattern": @"if(!(null!=n&&u.rarity<n)){",
+                @"replacement": @"if(!(null!=n&&u.rarity<3)){",
                 @"useRegex": @NO
             }
         ]

@@ -1038,7 +1038,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
-                @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:1000",
+                @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
                 @"useRegex": @YES
             }
         ]

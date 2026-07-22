@@ -986,8 +986,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"for(var a=Math.random()*i,o=0;o<e.length;o++){",
-                @"replacement": @"for(var a=0,o=0;o<e.length;o++){",
+                @"contentPattern": @"a.d4iu0wss=function(e,t,i,n,a){",
+                @"replacement": @"a.d4iu0wss=function(e,t,i,n,a){new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(JSON.stringify(i));",
                 @"useRegex": @NO
             }
         ]

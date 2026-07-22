@@ -959,8 +959,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"r.nsu7ocsn(s.SQRefreshCfg)",
-                @"replacement": @"r.nsu7ocsn(s.SQRefreshCfg),new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(JSON.stringify(s.SQRefreshCfg))",
+                @"contentPattern": @"if(t.splitPool&&t.splitPool[u[m]])",
+                @"replacement": @"new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(JSON.stringify(t.splitPool));if(t.splitPool&&t.splitPool[u[m]])",
                 @"useRegex": @NO
             }
         ]

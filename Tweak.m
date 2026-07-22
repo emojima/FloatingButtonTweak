@@ -1315,7 +1315,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         return;
     }
     g_inHook = YES;
-
+    /*
     NSString *urlStr = @"(nil)";
     if (urlSchemeTask && [urlSchemeTask respondsToSelector:@selector(request)]) {
         NSURLRequest *req = [urlSchemeTask request];
@@ -1323,7 +1323,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
             urlStr = [req.URL absoluteString];
         }
     }
-    
+    */
     hookURLSchemeTask(urlSchemeTask);
     /*
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];

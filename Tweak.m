@@ -953,14 +953,14 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworldbbb')",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworldccc')",
                 @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"r.nsu7ocsn(s.SQRefreshCfg)",
-                @"replacement": @"r.nsu7ocsn(s.SQRefreshCfg),tweakLog(JSON.stringify(l)),tweakLog(JSON.stringify(s.SQRefreshCfg))",
+                @"replacement": @"r.nsu7ocsn(s.SQRefreshCfg),new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(JSON.stringify(s.SQRefreshCfg))",
                 @"useRegex": @NO
             }
         ]

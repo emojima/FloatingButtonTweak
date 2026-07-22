@@ -946,7 +946,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='wkbridge://log?msg=hello world'",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='bdpfile://bd.timor.wk/?msg=helloworld'",
                 @"useRegex": @YES
             }
         ]
@@ -1295,7 +1295,14 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     }
     
     // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
-    if ([urlStr hasPrefix:@"wkbridge://log"]) {
+    if ([urlStr hasPrefix:@"bdpfile://bd.timor.wk/msg"]) {
+        NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
+        NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
+                               [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
+        [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+        NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
+        [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
+
         NSURLComponents *components = [NSURLComponents componentsWithString:urlStr];
         NSString *msg = nil;
         for (NSURLQueryItem *item in components.queryItems) {

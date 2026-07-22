@@ -946,7 +946,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='bdpfile://bd.timor.wk/helloworld'",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='bdpfile://bd.timor.wk/helloworld?msg=test'",
                 @"useRegex": @YES
             }
         ]
@@ -1197,8 +1197,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
             }
 
             // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
-            /*
-            if ([taskUrl hasPrefix:@"bdpfile://bd.timor.wk/msg"]) {
+            
+            if ([taskUrl hasPrefix:@"bdpfile:/bd.timor.wk/helloworld"]) {
                 NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", taskUrl];
                 NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", 
                                        [[LogWindowManager sharedInstance] truncateString:taskUrl maxLength:120]];
@@ -1220,13 +1220,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                     [[LogWindowManager sharedInstance] appendLog:jsLog];
                     [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
                 }
-        
-                NSString *log = [NSString stringWithFormat:@"🌐 [拦截] wkbridge://log URL=%@", taskUrl];
-                [[LogWindowManager sharedInstance] appendLog:log];
-                g_inHook = NO;
-                return;
             }
-            */
+            
             
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 

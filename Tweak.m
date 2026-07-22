@@ -674,15 +674,6 @@
 
     [self addSwitchRowToPanel:contentView
                          y:yOffset
-                       icon:@"💰"
-                      title:@"示例：无限金币"
-                   subtitle:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:self.enableExampleRule
-                      tag:1007];
-    yOffset += rowHeight;
-
-    [self addSwitchRowToPanel:contentView
-                         y:yOffset
                        icon:@"✨"
                       title:@"增加刷新高级属性概率"
                    subtitle:self.enableIncreaseRareRate ? @"当前：已开启" : @"当前：已关闭"
@@ -715,6 +706,15 @@
                    subtitle:self.enableResearchRateUP ? @"当前：已开启" : @"当前：已关闭"
                     isOn:self.enableResearchRateUP
                       tag:1011];
+    yOffset += rowHeight;
+
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"💰"
+                      title:@"示例：无限金币"
+                   subtitle:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableExampleRule
+                      tag:1007];
     yOffset += rowHeight;
 
     UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];

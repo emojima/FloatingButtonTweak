@@ -958,10 +958,10 @@
         @"enabledKey": @"enableExampleRule",
         @"rules": @[
             @{
-                @"urlPattern": @"game.js",
-                @"urlIsRegex": @NO,
-                @"contentPattern": @"this.coins=0",
-                @"replacement": @"this.coins=999999",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"var g=z.n0hzua0h(y,\"rate\");",
+                @"replacement": @"var g=z.n0hzua0h(y,\"rate\");g=y[0];",
                 @"useRegex": @NO
             }
         ]

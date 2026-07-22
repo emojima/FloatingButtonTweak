@@ -946,7 +946,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src = 'bdpfile://bd.timor.wk/helloworld'",
                 @"useRegex": @YES
             }
         ]

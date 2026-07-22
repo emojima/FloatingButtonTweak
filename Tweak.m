@@ -947,14 +947,21 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"__tt_define__\\(",
                 @"replacement": @"function tweakLog(message){new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(message)};__tt_define__(",
-                @"useRegex": @YES
+                @"useRegex": @NO
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworldaaa')",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworldbbb')",
                 @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"i.n0hzua0h=function(e,t){",
+                @"replacement": @"i.n0hzua0h=function(e,t){tweakLog(JSON.stringify(e));",
+                @"useRegex": @NO
             }
         ]
     }];

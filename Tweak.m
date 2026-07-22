@@ -947,7 +947,7 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"__tt_define__\\(",
                 @"replacement": @"function tweakLog(message){new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent(message)};__tt_define__(",
-                @"useRegex": @NO
+                @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",

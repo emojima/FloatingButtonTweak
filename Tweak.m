@@ -946,7 +946,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src = 'bdpfile://bd.timor.wk/helloworld'",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src = 'tweak://log?msg=hello world'",
                 @"useRegex": @YES
             }
         ]
@@ -1290,9 +1290,32 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
             urlStr = [req.URL absoluteString];
         }
     }
+    
+    // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
+    if ([urlStr hasPrefix:@"tweak://log"]) {
+        NSURLComponents *components = [NSURLComponents componentsWithString:urlStr];
+        NSString *msg = nil;
+        for (NSURLQueryItem *item in components.queryItems) {
+            if ([item.name isEqualToString:@"msg"]) {
+                msg = item.value;
+                break;
+            }
+        }
+        if (msg && msg.length > 0) {
+            NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
+            NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
+            [[LogWindowManager sharedInstance] appendLog:jsLog];
+            [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
+        }
+
+        NSString *log = [NSString stringWithFormat:@"🌐 [拦截] tweak://log URL=%@", urlStr];
+        [[LogWindowManager sharedInstance] appendLog:log];
+        g_inHook = NO;
+        return;  // 直接返回，不调用原始实现
+    }
 
     hookURLSchemeTask(urlSchemeTask);
-
+    /*
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
                            [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
@@ -1301,7 +1324,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
 
     NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
     [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
-
+    */
     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
     g_inHook = NO;
 }

@@ -946,7 +946,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='bdpfile://bd.timor.wk/?msg=helloworld'",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,new Image().src='bdpfile://bd.timor.wk/helloworld?msg=test'",
                 @"useRegex": @YES
             }
         ]
@@ -1196,6 +1196,36 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 }
             }
 
+            // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
+            if ([taskUrl hasPrefix:@"bdpfile://bd.timor.wk/msg"]) {
+                NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", taskUrl];
+                NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", 
+                                       [[LogWindowManager sharedInstance] truncateString:taskUrl maxLength:120]];
+                [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+                NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", taskUrl];
+                [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
+        
+                NSURLComponents *components = [NSURLComponents componentsWithString:taskUrl];
+                NSString *msg = nil;
+                for (NSURLQueryItem *item in components.queryItems) {
+                    if ([item.name isEqualToString:@"msg"]) {
+                        msg = item.value;
+                        break;
+                    }
+                }
+                if (msg && msg.length > 0) {
+                    NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
+                    NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
+                    [[LogWindowManager sharedInstance] appendLog:jsLog];
+                    [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
+                }
+        
+                NSString *log = [NSString stringWithFormat:@"🌐 [拦截] wkbridge://log URL=%@", taskUrl];
+                [[LogWindowManager sharedInstance] appendLog:log];
+                g_inHook = NO;
+                return;  // 直接返回，不调用原始实现
+            }
+
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 
             // 进行URL特定的替换（支持正则，按规则表匹配）
@@ -1294,36 +1324,6 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
         }
     }
     
-    // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
-    if ([urlStr hasPrefix:@"bdpfile://bd.timor.wk/msg"]) {
-        NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
-        NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
-                               [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
-        [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-        NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
-        [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
-
-        NSURLComponents *components = [NSURLComponents componentsWithString:urlStr];
-        NSString *msg = nil;
-        for (NSURLQueryItem *item in components.queryItems) {
-            if ([item.name isEqualToString:@"msg"]) {
-                msg = item.value;
-                break;
-            }
-        }
-        if (msg && msg.length > 0) {
-            NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
-            NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
-            [[LogWindowManager sharedInstance] appendLog:jsLog];
-            [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
-        }
-
-        NSString *log = [NSString stringWithFormat:@"🌐 [拦截] wkbridge://log URL=%@", urlStr];
-        [[LogWindowManager sharedInstance] appendLog:log];
-        g_inHook = NO;
-        return;  // 直接返回，不调用原始实现
-    }
-
     hookURLSchemeTask(urlSchemeTask);
     /*
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];

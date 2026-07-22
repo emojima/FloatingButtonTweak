@@ -1197,6 +1197,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
             }
 
             // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
+            /*
             if ([taskUrl hasPrefix:@"bdpfile://bd.timor.wk/msg"]) {
                 NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", taskUrl];
                 NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", 
@@ -1223,9 +1224,10 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 NSString *log = [NSString stringWithFormat:@"🌐 [拦截] wkbridge://log URL=%@", taskUrl];
                 [[LogWindowManager sharedInstance] appendLog:log];
                 g_inHook = NO;
-                return;  // 直接返回，不调用原始实现
+                return;
             }
-
+            */
+            
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 
             // 进行URL特定的替换（支持正则，按规则表匹配）
@@ -1246,32 +1248,29 @@ static void hookURLSchemeTask(id urlSchemeTask) {
 
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
 
-            // 只输出修改的内容
-            if (didReplace) {
-                NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
-                NSString *dataFull = data ? [data description] : @"(nil)";
-    
-                NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ | data=%@",
-                                 contentType,
-                                 taskUrl,
-                                 didReplace ? @"[已替换]" : @"",
-                                 dataFull];
-    
-                NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ | data=%@",
-                                 contentType,
-                                 taskUrl,
-                                 didReplace ? @"[已替换]" : @"",
-                                 dataPreview];
-    
-                NSLog(@"[Tweak] %@", fullLog);
-                [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
-                
-                if (data && data.length > 0) {
-                    NSString *dataStr2 = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
-                    NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE][Type=%@] URL=%@ | LENGTH=%lu | CONTENT=%@",
-                                           contentType, taskUrl, (unsigned long)data.length, dataStr2 ?: @"(binary data)"];
-                    [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
-                }
+            NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
+            NSString *dataFull = data ? [data description] : @"(nil)";
+
+            NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ | data=%@",
+                             contentType,
+                             taskUrl,
+                             didReplace ? @"[已替换]" : @"",
+                             dataFull];
+
+            NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData][Type=%@] URL=%@ %@ | data=%@",
+                             contentType,
+                             taskUrl,
+                             didReplace ? @"[已替换]" : @"",
+                             dataPreview];
+
+            NSLog(@"[Tweak] %@", fullLog);
+            [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+            
+            if (data && data.length > 0) {
+                NSString *dataStr2 = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE][Type=%@] URL=%@ | LENGTH=%lu | CONTENT=%@",
+                                       contentType, taskUrl, (unsigned long)data.length, dataStr2 ?: @"(binary data)"];
+                [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
             }
 
             typedef void (*orig_data_fn_t)(id, SEL, NSData *);

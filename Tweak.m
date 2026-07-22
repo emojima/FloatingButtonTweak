@@ -662,36 +662,6 @@
 
     CGFloat yOffset = 16;
     CGFloat rowHeight = 56;
-    [self addSwitchRowToPanel:contentView
-                         y:yOffset
-                       icon:@"📋"
-                      title:@"日志窗口显示"
-                   subtitle:[[LogWindowManager sharedInstance] isVisible] ? @"当前：显示中" : @"当前：已隐藏"
-                    isOn:[[LogWindowManager sharedInstance] isVisible]
-                      tag:1001];
-    yOffset += rowHeight;
-
-    [self addSwitchRowToPanel:contentView
-                         y:yOffset
-                       icon:@"📝"
-                      title:@"日志输出到屏幕"
-                   subtitle:[[LogWindowManager sharedInstance] logEnabled] ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:[[LogWindowManager sharedInstance] logEnabled]
-                      tag:1002];
-    yOffset += rowHeight;
-
-    [self addSwitchRowToPanel:contentView
-                         y:yOffset
-                       icon:@"📁"
-                      title:@"日志写入文件"
-                   subtitle:[[LogWindowManager sharedInstance] logToFileEnabled] ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:[[LogWindowManager sharedInstance] logToFileEnabled]
-                      tag:1003];
-    yOffset += rowHeight + 8;
-
-    UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
-    sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
-    [contentView addSubview:sep1];
 
     [self addSwitchRowToPanel:contentView
                          y:yOffset
@@ -745,6 +715,38 @@
                    subtitle:self.enableResearchRateUP ? @"当前：已开启" : @"当前：已关闭"
                     isOn:self.enableResearchRateUP
                       tag:1011];
+    yOffset += rowHeight;
+
+    UIView *sep1 = [[UIView alloc] initWithFrame:CGRectMake(16, yOffset - 4, panelWidth - 32, 1)];
+    sep1.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:1.0];
+    [contentView addSubview:sep1];
+
+
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"📋"
+                      title:@"日志窗口显示"
+                   subtitle:[[LogWindowManager sharedInstance] isVisible] ? @"当前：显示中" : @"当前：已隐藏"
+                    isOn:[[LogWindowManager sharedInstance] isVisible]
+                      tag:1001];
+    yOffset += rowHeight;
+
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"📝"
+                      title:@"日志输出到屏幕"
+                   subtitle:[[LogWindowManager sharedInstance] logEnabled] ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:[[LogWindowManager sharedInstance] logEnabled]
+                      tag:1002];
+    yOffset += rowHeight;
+
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"📁"
+                      title:@"日志写入文件"
+                   subtitle:[[LogWindowManager sharedInstance] logToFileEnabled] ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:[[LogWindowManager sharedInstance] logToFileEnabled]
+                      tag:1003];
     yOffset += rowHeight;
     
     [self addActionRowToPanel:contentView

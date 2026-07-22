@@ -960,8 +960,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"var g=z.n0hzua0h(y,\"rate\");",
-                @"replacement": @"var g=z.n0hzua0h(y,\"rate\");g=y[0];",
+                @"contentPattern": @"for(var a=Math.random()*i,o=0;o<e.length;o++){",
+                @"replacement": @"for(var a=0,o=0;o<e.length;o++){",
                 @"useRegex": @NO
             }
         ]

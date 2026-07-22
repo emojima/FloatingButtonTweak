@@ -959,8 +959,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"i.n0hzua0h=function(e,t){",
-                @"replacement": @"i.n0hzua0h=function(e,t){tweakLog(JSON.stringify(e));",
+                @"contentPattern": @"r.nsu7ocsn(s.SQRefreshCfg)",
+                @"replacement": @"r.nsu7ocsn(s.SQRefreshCfg),tweakLog(JSON.stringify(l)),tweakLog(JSON.stringify(s.SQRefreshCfg))",
                 @"useRegex": @NO
             }
         ]

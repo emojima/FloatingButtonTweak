@@ -17,6 +17,7 @@
 @property (nonatomic, assign) BOOL enableIncreaseRareRate;
 @property (nonatomic, assign) BOOL enableIncreaseHP;
 @property (nonatomic, assign) BOOL enableWeaponPin;
+@property (nonatomic, assign) BOOL enableResearchRateUP;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 @property (nonatomic, assign) CGPoint lastPanelTranslation;
 + (instancetype)sharedInstance;
@@ -461,6 +462,7 @@
         _enableIncreaseRareRate = NO;
         _enableIncreaseHP = NO;
         _enableWeaponPin = NO;
+        _enableResearchRateUP = NO;
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
         [self setupGlobalWakeGesture];
@@ -736,6 +738,15 @@
                       tag:1010];
     yOffset += rowHeight;
     
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
+                       icon:@"🍀"
+                      title:@"增加研发连刷概率"
+                   subtitle:self.enableResearchRateUP ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableResearchRateUP
+                      tag:1011];
+    yOffset += rowHeight;
+    
     [self addActionRowToPanel:contentView
                           y:yOffset
                         icon:@"📂"
@@ -904,6 +915,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1011: {
+            self.enableResearchRateUP = !self.enableResearchRateUP;
+            [self updateMenuSubtitleForTag:1011 text:self.enableResearchRateUP ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"🍀 增加研发连刷概率%@", self.enableResearchRateUP ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
 }
 
@@ -987,7 +1006,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"p>0&&l.push({id:u.id,weight:p})",
-                @"replacement": @"p>0&&(u.id===15||u.id>31)&&l.push({id:u.id,weight:p})",
+                @"replacement": @"p>0&&(u.id===15||u.id>31)&&l.push({id:u.id,weight:121-p})",
                 @"useRegex": @NO
             }
         ]
@@ -1054,6 +1073,21 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"var n=this.k8e60jk7();",
                 @"replacement": @"var n=this.k8e60jk7();n=n.filter((function(item){return item&&[\"子弹\",\"激光束\",\"冰茶\",\"财神爷\",\"魔龙\"].includes(item.name)}));new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent('已修改武器库');",
+                @"useRegex": @NO
+            }
+        ]
+    }];
+
+    // 规则6：增加研发连刷概率
+    [self.urlReplacementRules addObject:@{
+        @"name": @"增加研发连刷概率",
+        @"enabledKey": @"enableResearchRateUP",
+        @"rules": @[
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"p>0&&l.push({id:u.id,weight:p})",
+                @"replacement": @"p>0&&(u.id===15||u.id>31)&&l.push({id:u.id,weight:121-p})",
                 @"useRegex": @NO
             }
         ]

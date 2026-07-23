@@ -1771,23 +1771,6 @@
         [gesture setTranslation:CGPointZero inView:panel.superview];
     }
 }
-    NSString *jsonArray = [NSString stringWithFormat:@"[%@]", [quotedNames componentsJoinedByString:@","]];
-    NSString *newReplacement = [NSString stringWithFormat:@"var n=this.k8e60jk7();n=n.filter((function(item){return item&&%@.includes(item.name)}));new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent('已修改武器库');", jsonArray];
-
-    for (NSMutableDictionary *rule in self.urlReplacementRules) {
-        if ([rule[@"enabledKey"] isEqualToString:@"enableWeaponPin"]) {
-            NSMutableArray *subRules = [rule[@"rules"] mutableCopy];
-            if (subRules.count > 0) {
-                NSMutableDictionary *subRule = [subRules[0] mutableCopy];
-                subRule[@"replacement"] = newReplacement;
-                subRules[0] = subRule;
-                rule[@"rules"] = subRules;
-            }
-            break;
-        }
-    }
-}
-
 #pragma mark - ========== 递归保护 ==========
 
 static _Thread_local BOOL g_inHook = NO;

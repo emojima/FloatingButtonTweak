@@ -186,7 +186,7 @@
     [self.titleBar addGestureRecognizer:panGesture];
 
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, windowWidth - 200, 36)];
-    titleLabel.text = @"📋 Tweak 日志（拖动标题栏移动）";
+    titleLabel.text = @"📋 Tweak 日志窗口";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:13];
     [self.titleBar addSubview:titleLabel];
@@ -732,7 +732,7 @@
 
     // 标题Label：缩小宽度避免和关闭按钮重叠
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, panelWidth - 60, 48)];
-    titleLabel.text = @"🛠️ Tweak 功能面板（按住标题栏拖动）";
+    titleLabel.text = @"🛠️ Tweak 功能面板";
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.font = [UIFont boldSystemFontOfSize:16];
     titleLabel.textAlignment = NSTextAlignmentCenter;

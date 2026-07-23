@@ -1590,29 +1590,35 @@
 }
 
 - (void)updateWeaponPinRuleWithWeapons:(NSArray<NSString *> *)weapons {
-    // 将选中武器格式化为JSON数组字符串
     NSMutableArray *quotedNames = [NSMutableArray array];
     for (NSString *name in weapons) {
         [quotedNames addObject:[NSString stringWithFormat:@"\"%@\"", name]];
     }
     NSString *newWeaponArray = [NSString stringWithFormat:@"[%@]", [quotedNames componentsJoinedByString:@","]];
 
-    // 在规则中找到replacement字符串，整体替换其中的武器数组部分
+    // 旧的默认武器数组字符串，用于直接替换
+    NSString *oldWeaponArray = @"[\"子弹\",\"豌豆\",\"冰茶\",\"财神爷\",\"魔龙\"]";
+
     for (NSMutableDictionary *rule in self.urlReplacementRules) {
         if ([rule[@"enabledKey"] isEqualToString:@"enableWeaponPin"]) {
             NSMutableArray *subRules = [rule[@"rules"] mutableCopy];
             if (subRules.count > 0) {
                 NSMutableDictionary *subRule = [subRules[0] mutableCopy];
                 NSString *currentReplacement = subRule[@"replacement"];
-                // 用正则匹配并替换replacement中的武器数组部分 [...]
-                NSError *error = nil;
-                NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"\\[\"[^\"]*\"(?:,\"[^\"]*\")*\\]" options:0 error:&error];
-                if (!error && regex) {
-                    NSString *updatedReplacement = [regex stringByReplacingMatchesInString:currentReplacement options:0 range:NSMakeRange(0, currentReplacement.length) withTemplate:newWeaponArray];
-                    subRule[@"replacement"] = updatedReplacement;
-                } else {
-                    subRule[@"replacement"] = newWeaponArray;
+                // 直接字符串替换
+                NSString *updatedReplacement = [currentReplacement stringByReplacingOccurrencesOfString:oldWeaponArray withString:newWeaponArray];
+                // 如果旧数组没找到（可能已经被替换过），则用正则兜底替换任意数组
+                if ([updatedReplacement isEqualToString:currentReplacement]) {
+                    NSRange range = [currentReplacement rangeOfString:@"["];
+                    if (range.location != NSNotFound) {
+                        NSRange endRange = [currentReplacement rangeOfString:@"]" options:0 range:NSMakeRange(range.location, currentReplacement.length - range.location)];
+                        if (endRange.location != NSNotFound) {
+                            NSRange fullRange = NSMakeRange(range.location, endRange.location - range.location + 1);
+                            updatedReplacement = [currentReplacement stringByReplacingCharactersInRange:fullRange withString:newWeaponArray];
+                        }
+                    }
                 }
+                subRule[@"replacement"] = updatedReplacement;
                 subRules[0] = subRule;
                 rule[@"rules"] = subRules;
             }

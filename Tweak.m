@@ -1247,6 +1247,24 @@
                 }
             }
 
+            // 只输出URL匹配的日志
+            BOOL didReplace = (modified && ![modified isEqualToString:result]);
+            NSString *dataPreview = result ? [[LogWindowManager sharedInstance] truncateString:result maxLength:200] : @"(nil)";
+            NSString *fullLog = [NSString stringWithFormat:@"📋 [applyURLSpecificReplacementsToString] URL=%@ %@ | string=%@",
+                             taskUrl,
+                             didReplace ? @"[已替换]" : @"",
+                             result];
+            NSString *displayLog = [NSString stringWithFormat:@"📋 [applyURLSpecificReplacementsToString] URL=%@ %@ | string=%@",
+                             taskUrl,
+                             didReplace ? @"[已替换]" : @"",
+                             dataPreview];
+            [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+            if (result && result.length > 0) {
+                NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE] URL=%@ | LENGTH=%lu | CONTENT=%@",
+                                       urlString, (unsigned long)result.length, result];
+                [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
+            }
+
             if (modified && ![modified isEqualToString:result]) {
                 self.totalReplacedCount++;
                 NSString *log = [NSString stringWithFormat:@"✅ [%@] 替换成功 (第 %d 次) URL=%@", ruleName, self.totalReplacedCount, urlString];
@@ -1982,9 +2000,10 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                     }
                 }
             }
-
+            
+            /*
             BOOL didReplace = (modifiedData != data && ![modifiedData isEqual:data]);
-
+        
             NSString *dataPreview = data ? [[LogWindowManager sharedInstance] truncateData:data maxLength:200] : @"(nil)";
             NSString *dataFull = data ? [data description] : @"(nil)";
 
@@ -2009,7 +2028,8 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                                        contentType, taskUrl, (unsigned long)data.length, dataStr2 ?: @"(binary data)"];
                 [[LogWindowManager sharedInstance] writeLogToFile:responseLog];
             }
-
+            */
+            
             typedef void (*orig_data_fn_t)(id, SEL, NSData *);
             ((orig_data_fn_t)origDidReceiveData)(taskSelf, didReceiveDataSel, modifiedData);
         });
@@ -2061,7 +2081,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     }
     
     hookURLSchemeTask(urlSchemeTask);
-    
+    /*
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
                            [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];
@@ -2070,7 +2090,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
 
     NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", urlStr];
     [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
-    
+    */
     orig_BDPWKURLSchemeHandler_webView_startURLSchemeTask(self, _cmd, webView, urlSchemeTask);
     g_inHook = NO;
 }

@@ -907,7 +907,7 @@
     subLabel.font = [UIFont systemFontOfSize:12];
     [row addSubview:subLabel];
 
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(panelWidth - 107, 12, 51, 31)];
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(panelWidth - 68, 12, 51, 31)];
     sw.on = isOn;
     sw.tag = tag;
     sw.onTintColor = [UIColor colorWithRed:0.2 green:0.7 blue:1.0 alpha:1.0];

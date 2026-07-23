@@ -907,7 +907,7 @@
     subLabel.font = [UIFont systemFontOfSize:12];
     [row addSubview:subLabel];
 
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(panelWidth - 66, 12, 51, 31)];
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(panelWidth - 107, 12, 51, 31)];
     sw.on = isOn;
     sw.tag = tag;
     sw.onTintColor = [UIColor colorWithRed:0.2 green:0.7 blue:1.0 alpha:1.0];
@@ -1398,7 +1398,7 @@
     [titleBar addSubview:closeBtn];
 
     // 滚动区域
-    CGFloat bottomBarHeight = 70;
+    CGFloat bottomBarHeight = 84;
     UIScrollView *scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 52, panelWidth, panelHeight - 52 - bottomBarHeight)];
     scrollView.showsVerticalScrollIndicator = YES;
     scrollView.alwaysBounceVertical = YES;
@@ -1556,7 +1556,7 @@
 
     // 确认按钮 - 渐变色效果
     UIButton *confirmBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    confirmBtn.frame = CGRectMake(16, 24, panelWidth - 32, 44);
+    confirmBtn.frame = CGRectMake(16, 26, panelWidth - 32, 44);
     CAGradientLayer *gradient = [CAGradientLayer layer];
     gradient.frame = confirmBtn.bounds;
     gradient.colors = @[(id)[UIColor colorWithRed:0.2 green:0.5 blue:1.0 alpha:1.0].CGColor, (id)[UIColor colorWithRed:0.4 green:0.3 blue:0.9 alpha:1.0].CGColor];

@@ -136,14 +136,16 @@
     if (self.logContainerView) {
         self.logContainerView.hidden = NO;
         self.isVisible = YES;
-        // 还原到默认位置
-        CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
-        CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
-        CGFloat windowWidth = screenWidth * 0.9;
-        CGFloat windowHeight = screenHeight * 0.55;
-        CGFloat windowX = (screenWidth - windowWidth) / 2;
-        CGFloat windowY = screenHeight * 0.12;
-        self.logContainerView.frame = CGRectMake(windowX, windowY, windowWidth, windowHeight);
+        {
+            // 还原到默认位置
+            CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
+            CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+            CGFloat windowWidth = screenWidth * 0.9;
+            CGFloat windowHeight = screenHeight * 0.55;
+            CGFloat windowX = (screenWidth - windowWidth) / 2;
+            CGFloat windowY = screenHeight * 0.12;
+            self.logContainerView.frame = CGRectMake(windowX, windowY, windowWidth, windowHeight);
+        }
         UIWindow *topWindow = [self topmostWindow];
         if (topWindow) {
             UIView *panelOverlay = [topWindow viewWithTag:99999];
@@ -235,16 +237,18 @@
         }
     }
 
-    self.logContainerView.hidden = NO;
+        self.logContainerView.hidden = NO;
         self.isVisible = YES;
-        // 还原到默认位置
-        CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
-        CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
-        CGFloat windowWidth = screenWidth * 0.9;
-        CGFloat windowHeight = screenHeight * 0.55;
-        CGFloat windowX = (screenWidth - windowWidth) / 2;
-        CGFloat windowY = screenHeight * 0.12;
-        self.logContainerView.frame = CGRectMake(windowX, windowY, windowWidth, windowHeight);
+        {
+            // 还原到默认位置
+            CGFloat screenWidth = [[UIScreen mainScreen] bounds].size.width;
+            CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+            CGFloat windowWidth = screenWidth * 0.9;
+            CGFloat windowHeight = screenHeight * 0.55;
+            CGFloat windowX = (screenWidth - windowWidth) / 2;
+            CGFloat windowY = screenHeight * 0.12;
+            self.logContainerView.frame = CGRectMake(windowX, windowY, windowWidth, windowHeight);
+        }
     // 显示日志窗口后自动关闭功能面板（仅在面板已打开时）
     UIWindow *kw2 = [self topmostWindow];
     if (kw2 && [kw2 viewWithTag:99997]) {

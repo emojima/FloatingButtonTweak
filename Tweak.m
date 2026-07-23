@@ -1454,28 +1454,28 @@
     topLine.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.3 alpha:0.5];
     [bottomBar addSubview:topLine];
 
-    UILabel *selectedCountLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, panelWidth - 32, 20)];
+    UILabel *selectedCountLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 4, panelWidth - 32, 18)];
     selectedCountLabel.text = [NSString stringWithFormat:@"✦ 已选择 %lu 个武器", (unsigned long)self.selectedWeapons.count];
     selectedCountLabel.textColor = [UIColor colorWithRed:0.7 green:0.75 blue:0.85 alpha:1.0];
-    selectedCountLabel.font = [UIFont systemFontOfSize:13];
+    selectedCountLabel.font = [UIFont systemFontOfSize:12];
     selectedCountLabel.textAlignment = NSTextAlignmentCenter;
     selectedCountLabel.tag = 88892;
     [bottomBar addSubview:selectedCountLabel];
 
     // 确认按钮 - 渐变色效果
     UIButton *confirmBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    confirmBtn.frame = CGRectMake(16, 32, panelWidth - 32, 34);
+    confirmBtn.frame = CGRectMake(16, 24, panelWidth - 32, 44);
     CAGradientLayer *gradient = [CAGradientLayer layer];
     gradient.frame = confirmBtn.bounds;
     gradient.colors = @[(id)[UIColor colorWithRed:0.2 green:0.5 blue:1.0 alpha:1.0].CGColor, (id)[UIColor colorWithRed:0.4 green:0.3 blue:0.9 alpha:1.0].CGColor];
     gradient.startPoint = CGPointMake(0, 0.5);
     gradient.endPoint = CGPointMake(1, 0.5);
-    gradient.cornerRadius = 8;
+    gradient.cornerRadius = 10;
     [confirmBtn.layer insertSublayer:gradient atIndex:0];
-    confirmBtn.layer.cornerRadius = 8;
+    confirmBtn.layer.cornerRadius = 10;
     confirmBtn.layer.masksToBounds = YES;
     [confirmBtn setTitle:@"✅ 确认选择" forState:UIControlStateNormal];
-    confirmBtn.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    confirmBtn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
     confirmBtn.tag = 88893;
     [bottomBar addSubview:confirmBtn];
 
@@ -1596,29 +1596,18 @@
     }
     NSString *newWeaponArray = [NSString stringWithFormat:@"[%@]", [quotedNames componentsJoinedByString:@","]];
 
-    // 旧的默认武器数组字符串，用于直接替换
-    NSString *oldWeaponArray = @"[\"子弹\",\"豌豆\",\"冰茶\",\"财神爷\",\"魔龙\"]";
-
     for (NSMutableDictionary *rule in self.urlReplacementRules) {
         if ([rule[@"enabledKey"] isEqualToString:@"enableWeaponPin"]) {
             NSMutableArray *subRules = [rule[@"rules"] mutableCopy];
             if (subRules.count > 0) {
                 NSMutableDictionary *subRule = [subRules[0] mutableCopy];
                 NSString *currentReplacement = subRule[@"replacement"];
-                // 直接字符串替换
-                NSString *updatedReplacement = [currentReplacement stringByReplacingOccurrencesOfString:oldWeaponArray withString:newWeaponArray];
-                // 如果旧数组没找到（可能已经被替换过），则用正则兜底替换任意数组
-                if ([updatedReplacement isEqualToString:currentReplacement]) {
-                    NSRange range = [currentReplacement rangeOfString:@"["];
-                    if (range.location != NSNotFound) {
-                        NSRange endRange = [currentReplacement rangeOfString:@"]" options:0 range:NSMakeRange(range.location, currentReplacement.length - range.location)];
-                        if (endRange.location != NSNotFound) {
-                            NSRange fullRange = NSMakeRange(range.location, endRange.location - range.location + 1);
-                            updatedReplacement = [currentReplacement stringByReplacingCharactersInRange:fullRange withString:newWeaponArray];
-                        }
-                    }
+                NSError *error = nil;
+                NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"\\[.*?\\]" options:0 error:&error];
+                if (!error && regex) {
+                    NSString *updatedReplacement = [regex stringByReplacingMatchesInString:currentReplacement options:0 range:NSMakeRange(0, currentReplacement.length) withTemplate:newWeaponArray];
+                    subRule[@"replacement"] = updatedReplacement;
                 }
-                subRule[@"replacement"] = updatedReplacement;
                 subRules[0] = subRule;
                 rule[@"rules"] = subRules;
             }

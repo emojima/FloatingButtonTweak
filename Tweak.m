@@ -1112,7 +1112,7 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern":  @"(\\w)\\.([a-zA-Z0-9]+)=function\\(\\)\\{var (\\w)=this;this\\.isTTPlatform&&tt\\.createRewardedVideoAd&&\\(this\\.adRewardVideo=tt\\.createRewardedVideoAd\\(\\{adUnitId:this\\.VideoAdPos\\}\\),\\(.*?\\)\\(\"暂无广告请咨询官方客服\"\\)\\}\\)\\)\\)\\},",
+                @"contentPattern": @"(\\w)\\.([a-zA-Z0-9]+)=function\\(\\)\\{var (\\w)=this;this\\.isTTPlatform&&tt\\.createRewardedVideoAd&&\\(this\\.adRewardVideo=tt\\.createRewardedVideoAd\\(\\{adUnitId:this\\.VideoAdPos\\}\\),(.*?)\\(\"暂无广告请咨询官方客服\"\\)\\}\\)\\)\\)\\},",
                 @"replacement": @"$1.$2=function(){var $3=this;this.adRewardVideo={onClose:function(t){$3._fCls=t},onError:function(){},load:function(){return Promise.resolve()},show:function(){return setTimeout((function(){$3._fCls&&$3._fCls({isEnded:true})}),50),Promise.resolve()}},$4(\"暂无广告请咨询官方客服\")})))},",
                 @"useRegex": @YES
             }

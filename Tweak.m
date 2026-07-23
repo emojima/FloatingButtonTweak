@@ -18,6 +18,7 @@
 @property (nonatomic, assign) BOOL enableIncreaseHP;
 @property (nonatomic, assign) BOOL enableWeaponPin;
 @property (nonatomic, assign) BOOL enableResearchRateUP;
+@property (nonatomic, assign) BOOL enableSkipVideoAD;
 @property (nonatomic, strong) NSMutableArray<NSString *> *selectedWeapons;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 @property (nonatomic, assign) CGPoint lastPanelTranslation;
@@ -507,6 +508,7 @@
         _enableIncreaseHP = NO;
         _enableWeaponPin = NO;
         _enableResearchRateUP = NO;
+        _enableSkipVideoAD = NO;
         _selectedWeapons = [NSMutableArray array];
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
@@ -524,6 +526,7 @@
     [defaults setBool:self.enableIncreaseHP forKey:@"tweak_enableIncreaseHP"];
     [defaults setBool:self.enableWeaponPin forKey:@"tweak_enableWeaponPin"];
     [defaults setBool:self.enableResearchRateUP forKey:@"tweak_enableResearchRateUP"];
+    [defaults setBool:self.enableSkipVideoAD forKey:@"tweak_enableSkipVideoAD"];
     [defaults setObject:[self.selectedWeapons copy] forKey:@"tweak_selectedWeapons"];
     [defaults synchronize];
     NSLog(@"[Tweak] 配置已保存");
@@ -546,6 +549,9 @@
     if ([defaults objectForKey:@"tweak_enableWeaponPin"]) {
         self.enableWeaponPin = [defaults boolForKey:@"tweak_enableWeaponPin"];
     }
+    if ([defaults objectForKey:@"tweak_enableSkipVideoAD"]) {
+        self.enableSkipVideoAD = [defaults boolForKey:@"tweak_enableSkipVideoAD"];
+    }
     if ([defaults objectForKey:@"tweak_enableResearchRateUP"]) {
         self.enableResearchRateUP = [defaults boolForKey:@"tweak_enableResearchRateUP"];
     }
@@ -557,9 +563,10 @@
     if (self.enableWeaponPin && self.selectedWeapons.count > 0) {
         [self updateWeaponPinRuleWithWeapons:self.selectedWeapons];
     }
-    NSLog(@"[Tweak] 配置已加载: AdFree=%d, Example=%d, RareRate=%d, HP=%d, WeaponPin=%d, ResearchRate=%d, Weapons=%lu",
+    NSLog(@"[Tweak] 配置已加载: AdFree=%d, Example=%d, RareRate=%d, HP=%d, WeaponPin=%d, ResearchRate=%d, SkipVideoAD=%d, Weapons=%lu",
         self.enableAdFreeRefresh, self.enableExampleRule, self.enableIncreaseRareRate,
         self.enableIncreaseHP, self.enableWeaponPin, self.enableResearchRateUP,
+        self.enableSkipVideoAD,
         (unsigned long)self.selectedWeapons.count);
 }
 
@@ -808,6 +815,15 @@
 
     [self addSwitchRowToPanel:contentView
                          y:yOffset
+                       icon:@"✂️"
+                      title:@"跳过抖音广告"
+                   subtitle:self.enableSkipVideoAD ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableSkipVideoAD
+                      tag:1012];
+    yOffset += rowHeight;
+
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
                        icon:@"💰"
                       title:@"示例：无限金币"
                    subtitle:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"
@@ -1029,6 +1045,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1012: {
+            self.enableSkipVideoAD = !self.enableSkipVideoAD;
+            [self updateMenuSubtitleForTag:1012 text:self.enableSkipVideoAD ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"✂️ 跳过抖音广告%@", self.enableSkipVideoAD ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
     [self saveConfiguration];
 }
@@ -1196,6 +1220,22 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"([a-zA-Z_$])>0&&([a-zA-Z_$])\\.push\\(\\{id:([a-zA-Z_$])\\.id,weight:\\1\\}\\)",
                 @"replacement": @"$1>0&&($3.id===15||$3.id>31)&&$2.push({id:$3.id,weight:121-$1})",
+                @"useRegex": @YES
+            }
+        ]
+    }];
+
+    
+     // 规则7：增加研发连刷概率
+    [self.urlReplacementRules addObject:@{
+        @"name": @"跳过抖音广告",
+        @"enabledKey": @"enableSkipVideoAD",
+        @"rules": @[
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"(\\w)\\.([a-zA-Z0-9]+)=function\\(\\)\\{var (\\w)=this;this\\.isTTPlatform&&tt\\.createRewardedVideoAd&&\\(this\\.adRewardVideo=tt\\.createRewardedVideoAd\\(\\{adUnitId:this\\.VideoAdPos\\}\\),.*?\\(\"暂无广告请咨询官方客服\"\\)\\}\\)\\)\\)\\},",
+                @"replacement": @"$1.$2=function(){var $3=this;this.adRewardVideo={onClose:function(t){$3._fCls=t},onError:function(){},load:function(){return Promise.resolve()},show:function(){return setTimeout((function(){$3._fCls&&$3._fCls({isEnded:true}),$3.onVideoRewardHandler&&($3.onVideoRewardHandler(),$3.onVideoRewardHandler=null)}),50),Promise.resolve()}}},",
                 @"useRegex": @YES
             }
         ]

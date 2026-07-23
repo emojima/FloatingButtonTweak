@@ -1612,7 +1612,7 @@
                     subRule[@"replacement"] = updatedReplacement;
                     [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons replacement"];
                 }
-                [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons %@", subRule[@"replacement"]];
+                [[LogWindowManager sharedInstance] appendLog:[NSString stringWithFormat:@"📌 updateWeaponPinRuleWithWeapons replacement %@", subRule[@"replacement"]]];
                 subRules[0] = subRule;
                 rule[@"rules"] = subRules;
             }

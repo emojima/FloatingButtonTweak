@@ -138,7 +138,17 @@
         self.isVisible = YES;
         UIWindow *topWindow = [self topmostWindow];
         if (topWindow) {
-            [topWindow insertSubview:self.logContainerView atIndex:0];
+            UIView *panelOverlay = [topWindow viewWithTag:99999];
+            if (panelOverlay) {
+                [topWindow insertSubview:self.logContainerView belowSubview:panelOverlay];
+            } else {
+                UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
+                if (fb && fb.superview == topWindow) {
+                    [topWindow insertSubview:self.logContainerView belowSubview:fb];
+                } else {
+                    [topWindow insertSubview:self.logContainerView atIndex:0];
+                }
+            }
         }
         return;
     }
@@ -205,7 +215,17 @@
     self.logTextView.text = self.logBuffer;
     [self.logContainerView addSubview:self.logTextView];
 
-    [topWindow insertSubview:self.logContainerView atIndex:0];
+    UIView *panelOverlay = [topWindow viewWithTag:99999];
+    if (panelOverlay) {
+        [topWindow insertSubview:self.logContainerView belowSubview:panelOverlay];
+    } else {
+        UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
+        if (fb && fb.superview == topWindow) {
+            [topWindow insertSubview:self.logContainerView belowSubview:fb];
+        } else {
+            [topWindow insertSubview:self.logContainerView atIndex:0];
+        }
+    }
 
     self.logContainerView.hidden = NO;
     self.isVisible = YES;
@@ -612,7 +632,12 @@
     [topWindow bringSubviewToFront:self.floatingButton];
     LogWindowManager *logMgr = [LogWindowManager sharedInstance];
     if (logMgr.logContainerView && logMgr.logContainerView.superview == topWindow) {
-        [topWindow sendSubviewToBack:logMgr.logContainerView];
+        UIView *panelOverlay = [topWindow viewWithTag:99999];
+        if (panelOverlay) {
+            [topWindow insertSubview:logMgr.logContainerView belowSubview:panelOverlay];
+        } else {
+            [topWindow insertSubview:logMgr.logContainerView belowSubview:self.floatingButton];
+        }
     }
 }
 

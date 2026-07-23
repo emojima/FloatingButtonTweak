@@ -130,12 +130,7 @@
         self.isVisible = YES;
         UIWindow *topWindow = [self topmostWindow];
         if (topWindow) {
-            UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
-            if (fb && fb.superview == topWindow) {
-                [topWindow insertSubview:self.logContainerView belowSubview:fb];
-            } else {
-                [topWindow bringSubviewToFront:self.logContainerView];
-            }
+            [topWindow insertSubview:self.logContainerView atIndex:0];
         }
         return;
     }
@@ -202,12 +197,7 @@
     self.logTextView.text = self.logBuffer;
     [self.logContainerView addSubview:self.logTextView];
 
-    UIButton *fb = [[FloatingButtonManager sharedInstance] floatingButton];
-    if (fb && fb.superview == topWindow) {
-        [topWindow insertSubview:self.logContainerView belowSubview:fb];
-    } else {
-        [topWindow addSubview:self.logContainerView];
-    }
+    [topWindow insertSubview:self.logContainerView atIndex:0];
 
     self.logContainerView.hidden = NO;
     self.isVisible = YES;
@@ -1590,31 +1580,38 @@
 }
 
 - (void)updateWeaponPinRuleWithWeapons:(NSArray<NSString *> *)weapons {
-    [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons"];
-
     NSMutableArray *quotedNames = [NSMutableArray array];
     for (NSString *name in weapons) {
         [quotedNames addObject:[NSString stringWithFormat:@"\"%@\"", name]];
     }
     NSString *newWeaponArray = [NSString stringWithFormat:@"[%@]", [quotedNames componentsJoinedByString:@","]];
 
-    for (NSMutableDictionary *rule in self.urlReplacementRules) {
+    for (NSUInteger idx = 0; idx < self.urlReplacementRules.count; idx++) {
+        NSDictionary *rule = self.urlReplacementRules[idx];
         if ([rule[@"enabledKey"] isEqualToString:@"enableWeaponPin"]) {
-            [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons enableWeaponPin"];
-            NSMutableArray *subRules = [rule[@"rules"] mutableCopy];
+            NSArray *subRules = rule[@"rules"];
             if (subRules.count > 0) {
-                NSMutableDictionary *subRule = [subRules[0] mutableCopy];
+                NSDictionary *subRule = subRules[0];
                 NSString *currentReplacement = subRule[@"replacement"];
                 NSError *error = nil;
                 NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"\\[.*?\\]" options:0 error:&error];
                 if (!error && regex) {
                     NSString *updatedReplacement = [regex stringByReplacingMatchesInString:currentReplacement options:0 range:NSMakeRange(0, currentReplacement.length) withTemplate:newWeaponArray];
-                    subRule[@"replacement"] = updatedReplacement;
-                    [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons replacement"];
+                    NSDictionary *newSubRule = @{
+                        @"urlPattern": subRule[@"urlPattern"],
+                        @"urlIsRegex": subRule[@"urlIsRegex"],
+                        @"contentPattern": subRule[@"contentPattern"],
+                        @"replacement": updatedReplacement,
+                        @"useRegex": subRule[@"useRegex"]
+                    };
+                    NSDictionary *newRule = @{
+                        @"name": rule[@"name"],
+                        @"enabledKey": rule[@"enabledKey"],
+                        @"dynamicWeaponPin": rule[@"dynamicWeaponPin"],
+                        @"rules": @[newSubRule]
+                    };
+                    [self.urlReplacementRules replaceObjectAtIndex:idx withObject:newRule];
                 }
-                [[LogWindowManager sharedInstance] appendLog:[NSString stringWithFormat:@"📌 updateWeaponPinRuleWithWeapons replacement %@", subRule[@"replacement"]]];
-                subRules[0] = subRule;
-                rule[@"rules"] = subRules;
             }
             break;
         }

@@ -1163,8 +1163,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"var ([a-zA-Z_$])=this\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\(\\);",
-                @"replacement": @"var $1=this.$2();$1=$1.filter((function(item){return item&&[\\\"子弹\\\",\\\"豌豆\\\",\\\"冰茶\\\",\\\"财神爷\\\",\\\"魔龙\\\"].includes(item.name)}));new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent('已修改武器库');",
+                @"contentPattern": @";var ([a-zA-Z])=this\\.([a-zA-Z][a-zA-Z0-9]*)\\(\\);([a-zA-Z])==([a-zA-Z])\\.red&&\\(",
+                @"replacement": @";var $1=this.$2();$1=$1.filter((function(item){return item&&[\"子弹\",\"豌豆\",\"冰茶\",\"财神爷\",\"魔龙\"].includes(item.name)}));$3==$4.red&&(",
                 @"useRegex": @YES
             }
         ]
@@ -1178,8 +1178,8 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @";var ([a-zA-Z])=this\\.([a-zA-Z][a-zA-Z0-9]*)\\(\\);([a-zA-Z])==([a-zA-Z])\\.red&&\\(",
-                @"replacement": @";var $1=this.$2();$1=$1.filter((function(item){return item&&[\\\"子弹\\\",\\\"豌豆\\\",\\\"冰茶\\\",\\\"财神爷\\\",\\\"魔龙\\\"].includes(item.name)}));$3==$4.red&&(",
+                @"contentPattern": @"([a-zA-Z_$])>0&&([a-zA-Z_$])\\.push\\(\\{id:([a-zA-Z_$])\\.id,weight:\\1\\}\\)",
+                @"replacement": @"$1>0&&($3.id===15||$3.id>31)&&$2.push({id:$3.id,weight:121-$1})",
                 @"useRegex": @YES
             }
         ]

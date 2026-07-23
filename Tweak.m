@@ -84,6 +84,14 @@
         _lastTranslation = CGPointZero;
         _logEnabled = NO;
         _logToFileEnabled = NO;
+        // 从NSUserDefaults加载日志配置
+        NSUserDefaults *logDefaults = [NSUserDefaults standardUserDefaults];
+        if ([logDefaults objectForKey:@"tweak_logEnabled"]) {
+            _logEnabled = [logDefaults boolForKey:@"tweak_logEnabled"];
+        }
+        if ([logDefaults objectForKey:@"tweak_logToFileEnabled"]) {
+            _logToFileEnabled = [logDefaults boolForKey:@"tweak_logToFileEnabled"];
+        }
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
         NSString *documentsDir = [paths firstObject];
         _logFilePath = [documentsDir stringByAppendingPathComponent:@"TweakHookLog.txt"];
@@ -276,6 +284,8 @@
             self.logTextView.text = @"";
         }
     }
+    [[NSUserDefaults standardUserDefaults] setBool:self.logEnabled forKey:@"tweak_logEnabled"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (void)setLogToFileEnabled:(BOOL)enabled {
@@ -284,6 +294,8 @@
         NSString *log = [NSString stringWithFormat:@"📁 日志文件路径: %@", self.logFilePath];
         [self writeLogToFile:log];
     }
+    [[NSUserDefaults standardUserDefaults] setBool:self.logToFileEnabled forKey:@"tweak_logToFileEnabled"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (void)handleTitleBarPan:(UIPanGestureRecognizer *)gesture {
@@ -462,9 +474,57 @@
         _selectedWeapons = [NSMutableArray array];
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
+        [self loadConfiguration];
         [self setupGlobalWakeGesture];
     }
     return self;
+}
+
+- (void)saveConfiguration {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:self.enableAdFreeRefresh forKey:@"tweak_enableAdFreeRefresh"];
+    [defaults setBool:self.enableExampleRule forKey:@"tweak_enableExampleRule"];
+    [defaults setBool:self.enableIncreaseRareRate forKey:@"tweak_enableIncreaseRareRate"];
+    [defaults setBool:self.enableIncreaseHP forKey:@"tweak_enableIncreaseHP"];
+    [defaults setBool:self.enableWeaponPin forKey:@"tweak_enableWeaponPin"];
+    [defaults setBool:self.enableResearchRateUP forKey:@"tweak_enableResearchRateUP"];
+    [defaults setObject:[self.selectedWeapons copy] forKey:@"tweak_selectedWeapons"];
+    [defaults synchronize];
+    NSLog(@"[Tweak] 配置已保存");
+}
+
+- (void)loadConfiguration {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([defaults objectForKey:@"tweak_enableAdFreeRefresh"]) {
+        self.enableAdFreeRefresh = [defaults boolForKey:@"tweak_enableAdFreeRefresh"];
+    }
+    if ([defaults objectForKey:@"tweak_enableExampleRule"]) {
+        self.enableExampleRule = [defaults boolForKey:@"tweak_enableExampleRule"];
+    }
+    if ([defaults objectForKey:@"tweak_enableIncreaseRareRate"]) {
+        self.enableIncreaseRareRate = [defaults boolForKey:@"tweak_enableIncreaseRareRate"];
+    }
+    if ([defaults objectForKey:@"tweak_enableIncreaseHP"]) {
+        self.enableIncreaseHP = [defaults boolForKey:@"tweak_enableIncreaseHP"];
+    }
+    if ([defaults objectForKey:@"tweak_enableWeaponPin"]) {
+        self.enableWeaponPin = [defaults boolForKey:@"tweak_enableWeaponPin"];
+    }
+    if ([defaults objectForKey:@"tweak_enableResearchRateUP"]) {
+        self.enableResearchRateUP = [defaults boolForKey:@"tweak_enableResearchRateUP"];
+    }
+    NSArray *savedWeapons = [defaults objectForKey:@"tweak_selectedWeapons"];
+    if (savedWeapons && savedWeapons.count > 0) {
+        self.selectedWeapons = [savedWeapons mutableCopy];
+    }
+    // 如果武器固定功能已开启且有选中武器，更新规则
+    if (self.enableWeaponPin && self.selectedWeapons.count > 0) {
+        [self updateWeaponPinRuleWithWeapons:self.selectedWeapons];
+    }
+    NSLog(@"[Tweak] 配置已加载: AdFree=%d, Example=%d, RareRate=%d, HP=%d, WeaponPin=%d, ResearchRate=%d, Weapons=%lu",
+        self.enableAdFreeRefresh, self.enableExampleRule, self.enableIncreaseRareRate,
+        self.enableIncreaseHP, self.enableWeaponPin, self.enableResearchRateUP,
+        (unsigned long)self.selectedWeapons.count);
 }
 
 - (void)setupGlobalWakeGesture {
@@ -929,6 +989,7 @@
             break;
         }
     }
+    [self saveConfiguration];
 }
 
 - (void)updateMenuSubtitleForTag:(NSInteger)tag text:(NSString *)text {
@@ -1559,6 +1620,7 @@
     }
 
     [self updateWeaponPinRuleWithWeapons:self.selectedWeapons];
+    [self saveConfiguration];
 
     UIWindow *keyWindow = [self topmostWindow];
     if (!keyWindow) return;

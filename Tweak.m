@@ -552,7 +552,7 @@
     [topWindow bringSubviewToFront:self.floatingButton];
     LogWindowManager *logMgr = [LogWindowManager sharedInstance];
     if (logMgr.logContainerView && logMgr.logContainerView.superview == topWindow) {
-        [topWindow insertSubview:logMgr.logContainerView belowSubview:self.floatingButton];
+        [topWindow sendSubviewToBack:logMgr.logContainerView];
     }
 }
 

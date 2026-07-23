@@ -1590,6 +1590,8 @@
 }
 
 - (void)updateWeaponPinRuleWithWeapons:(NSArray<NSString *> *)weapons {
+    [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons"];
+
     NSMutableArray *quotedNames = [NSMutableArray array];
     for (NSString *name in weapons) {
         [quotedNames addObject:[NSString stringWithFormat:@"\"%@\"", name]];
@@ -1598,6 +1600,7 @@
 
     for (NSMutableDictionary *rule in self.urlReplacementRules) {
         if ([rule[@"enabledKey"] isEqualToString:@"enableWeaponPin"]) {
+            [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons enableWeaponPin"];
             NSMutableArray *subRules = [rule[@"rules"] mutableCopy];
             if (subRules.count > 0) {
                 NSMutableDictionary *subRule = [subRules[0] mutableCopy];
@@ -1607,7 +1610,9 @@
                 if (!error && regex) {
                     NSString *updatedReplacement = [regex stringByReplacingMatchesInString:currentReplacement options:0 range:NSMakeRange(0, currentReplacement.length) withTemplate:newWeaponArray];
                     subRule[@"replacement"] = updatedReplacement;
+                    [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons replacement"];
                 }
+                [[LogWindowManager sharedInstance] appendLog:@"📌 updateWeaponPinRuleWithWeapons %@", subRule[@"replacement"]];
                 subRules[0] = subRule;
                 rule[@"rules"] = subRules;
             }

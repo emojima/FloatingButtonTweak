@@ -1251,11 +1251,11 @@
             BOOL didReplace = (modified && ![modified isEqualToString:result]);
             NSString *dataPreview = result ? [[LogWindowManager sharedInstance] truncateString:result maxLength:200] : @"(nil)";
             NSString *fullLog = [NSString stringWithFormat:@"📋 [applyURLSpecificReplacementsToString] URL=%@ %@ | string=%@",
-                             taskUrl,
+                             urlString,
                              didReplace ? @"[已替换]" : @"",
                              result];
             NSString *displayLog = [NSString stringWithFormat:@"📋 [applyURLSpecificReplacementsToString] URL=%@ %@ | string=%@",
-                             taskUrl,
+                             urlString,
                              didReplace ? @"[已替换]" : @"",
                              dataPreview];
             [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
@@ -2072,6 +2072,9 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
     }
     g_inHook = YES;
     
+    hookURLSchemeTask(urlSchemeTask);
+    
+    /*
     NSString *urlStr = @"(nil)";
     if (urlSchemeTask && [urlSchemeTask respondsToSelector:@selector(request)]) {
         NSURLRequest *req = [urlSchemeTask request];
@@ -2079,9 +2082,7 @@ static void hook_BDPWKURLSchemeHandler_webView_startURLSchemeTask(id self, SEL _
             urlStr = [req.URL absoluteString];
         }
     }
-    
-    hookURLSchemeTask(urlSchemeTask);
-    /*
+
     NSString *fullLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", urlStr];
     NSString *displayLog = [NSString stringWithFormat:@"📋 [BDPWKURLSchemeHandler webView:startURLSchemeTask:] URL=%@", 
                            [[LogWindowManager sharedInstance] truncateString:urlStr maxLength:120]];

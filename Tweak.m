@@ -1163,9 +1163,9 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"var n=this.k8e60jk7();",
-                @"replacement": @"var n=this.k8e60jk7();n=n.filter((function(item){return item&&[\"子弹\",\"豌豆\",\"冰茶\",\"财神爷\",\"魔龙\"].includes(item.name)}));new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent('已修改武器库');",
-                @"useRegex": @NO
+                @"contentPattern": @"var ([a-zA-Z_$])=this\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\(\\);",
+                @"replacement": @"var $1=this.$2();$1=$1.filter((function(item){return item&&[\\\"子弹\\\",\\\"豌豆\\\",\\\"冰茶\\\",\\\"财神爷\\\",\\\"魔龙\\\"].includes(item.name)}));new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent('已修改武器库');",
+                @"useRegex": @YES
             }
         ]
     }];

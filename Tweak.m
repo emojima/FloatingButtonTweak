@@ -18,6 +18,7 @@
 @property (nonatomic, assign) BOOL enableIncreaseHP;
 @property (nonatomic, assign) BOOL enableWeaponPin;
 @property (nonatomic, assign) BOOL enableResearchRateUP;
+@property (nonatomic, strong) NSMutableArray<NSString *> *selectedWeapons;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 @property (nonatomic, assign) CGPoint lastPanelTranslation;
 + (instancetype)sharedInstance;
@@ -29,6 +30,8 @@
 - (UIWindow *)topmostWindow;
 - (NSString *)applyURLSpecificReplacementsToString:(NSString *)string forURL:(NSString *)urlString;
 - (void)registerDefaultURLReplacementRules;
+- (void)showWeaponSelectionUI;
+- (void)updateWeaponPinRuleWithWeapons:(NSArray<NSString *> *)weapons;
 @end
 
 @interface LogWindowManager : NSObject
@@ -463,6 +466,7 @@
         _enableIncreaseHP = NO;
         _enableWeaponPin = NO;
         _enableResearchRateUP = NO;
+        _selectedWeapons = [NSMutableArray array];
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
         [self setupGlobalWakeGesture];
@@ -915,6 +919,12 @@
             NSString *log = [NSString stringWithFormat:@"📌 固定获取的武器碎片%@", self.enableWeaponPin ? @"开启" : @"关闭"];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
+            if (self.enableWeaponPin) {
+                [self dismissMenuPanel];
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [self showWeaponSelectionUI];
+                });
+            }
             break;
         }
         case 1011: {
@@ -1069,6 +1079,7 @@
     [self.urlReplacementRules addObject:@{
         @"name": @"固定获取的武器碎片",
         @"enabledKey": @"enableWeaponPin",
+        @"dynamicWeaponPin": @YES,
         @"rules": @[
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
@@ -1204,6 +1215,284 @@
         topVC = topVC.presentedViewController;
     }
     return topVC;
+}
+
+
+- (void)showWeaponSelectionUI {
+    UIWindow *keyWindow = [self topmostWindow];
+    if (!keyWindow) return;
+
+    NSArray *allWeapons = @[
+        @{@"name":@"子弹",@"rarity":@"绿色武器"},@{@"name":@"金箍棒",@"rarity":@"绿色武器"},@{@"name":@"针",@"rarity":@"绿色武器"},@{@"name":@"手电筒",@"rarity":@"绿色武器"},@{@"name":@"便便",@"rarity":@"绿色武器"},
+        @{@"name":@"小火人",@"rarity":@"蓝色武器"},@{@"name":@"豌豆",@"rarity":@"蓝色武器"},@{@"name":@"香肠",@"rarity":@"蓝色武器"},@{@"name":@"激光束",@"rarity":@"蓝色武器"},
+        @{@"name":@"电风扇",@"rarity":@"紫色武器"},@{@"name":@"冰锥",@"rarity":@"紫色武器"},@{@"name":@"龙卷风",@"rarity":@"紫色武器"},@{@"name":@"冰茶",@"rarity":@"紫色武器"},@{@"name":@"纸飞机",@"rarity":@"紫色武器"},@{@"name":@"电池",@"rarity":@"紫色武器"},@{@"name":@"香蕉",@"rarity":@"紫色武器"},@{@"name":@"大威天龙",@"rarity":@"紫色武器"},@{@"name":@"篮球",@"rarity":@"紫色武器"},@{@"name":@"怪兽之眼",@"rarity":@"紫色武器"},@{@"name":@"三眼射线",@"rarity":@"紫色武器"},
+        @{@"name":@"财神爷",@"rarity":@"金色武器"},@{@"name":@"大宝剑",@"rarity":@"金色武器"},@{@"name":@"冰棍",@"rarity":@"金色武器"},@{@"name":@"盾牌",@"rarity":@"金色武器"},@{@"name":@"回旋镖",@"rarity":@"金色武器"},@{@"name":@"菜刀",@"rarity":@"金色武器"},@{@"name":@"水滴",@"rarity":@"金色武器"},@{@"name":@"拳头",@"rarity":@"金色武器"},@{@"name":@"胶囊",@"rarity":@"金色武器"},@{@"name":@"插头",@"rarity":@"金色武器"},
+        @{@"name":@"魔龙",@"rarity":@"红色武器"},@{@"name":@"万兵决",@"rarity":@"红色武器"}
+    ];
+
+    NSMutableArray *groups = [NSMutableArray array];
+    NSArray *rarityOrder = @[@"绿色武器",@"蓝色武器",@"紫色武器",@"金色武器",@"红色武器"];
+    NSDictionary *rarityColors = @{
+        @"绿色武器": [UIColor colorWithRed:0.2 green:0.8 blue:0.2 alpha:1.0],
+        @"蓝色武器": [UIColor colorWithRed:0.3 green:0.5 blue:1.0 alpha:1.0],
+        @"紫色武器": [UIColor colorWithRed:0.7 green:0.3 blue:0.9 alpha:1.0],
+        @"金色武器": [UIColor colorWithRed:1.0 green:0.8 blue:0.2 alpha:1.0],
+        @"红色武器": [UIColor colorWithRed:1.0 green:0.3 blue:0.3 alpha:1.0]
+    };
+
+    for (NSString *rarity in rarityOrder) {
+        NSMutableArray *weaponsInGroup = [NSMutableArray array];
+        for (NSDictionary *weapon in allWeapons) {
+            if ([weapon[@"rarity"] isEqualToString:rarity]) {
+                [weaponsInGroup addObject:weapon];
+            }
+        }
+        if (weaponsInGroup.count > 0) {
+            [groups addObject:@{@"rarity": rarity, @"weapons": weaponsInGroup}];
+        }
+    }
+
+    UIView *overlay = [[UIView alloc] initWithFrame:keyWindow.bounds];
+    overlay.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.6];
+    overlay.tag = 88888;
+    [keyWindow addSubview:overlay];
+
+    CGFloat panelWidth = keyWindow.bounds.size.width * 0.9;
+    CGFloat panelHeight = keyWindow.bounds.size.height * 0.8;
+    CGFloat panelX = (keyWindow.bounds.size.width - panelWidth) / 2;
+    CGFloat panelY = (keyWindow.bounds.size.height - panelHeight) / 2;
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelWidth, panelHeight)];
+    panel.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:0.98];
+    panel.layer.cornerRadius = 16;
+    panel.layer.masksToBounds = YES;
+    panel.tag = 88889;
+    [keyWindow addSubview:panel];
+
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelWidth, 50)];
+    titleBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
+    [panel addSubview:titleBar];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 0, panelWidth - 80, 50)];
+    titleLabel.text = @"📌 选择武器碎片（每组至少选1个）";
+    titleLabel.textColor = [UIColor whiteColor];
+    titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    [titleBar addSubview:titleLabel];
+
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closeBtn.frame = CGRectMake(panelWidth - 44, 9, 32, 32);
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor colorWithRed:1.0 green:0.4 blue:0.4 alpha:1.0] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    closeBtn.tag = 88890;
+    [titleBar addSubview:closeBtn];
+
+    UIScrollView *scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 50, panelWidth, panelHeight - 50 - 60)];
+    scrollView.showsVerticalScrollIndicator = YES;
+    scrollView.alwaysBounceVertical = YES;
+    [panel addSubview:scrollView];
+
+    UIView *scrollContent = [[UIView alloc] initWithFrame:CGRectZero];
+    scrollContent.tag = 88891;
+    [scrollView addSubview:scrollContent];
+
+    CGFloat yOff = 10;
+    CGFloat btnSize = 36;
+    CGFloat btnPadding = 8;
+
+    for (NSDictionary *group in groups) {
+        NSString *rarity = group[@"rarity"];
+        NSArray *weapons = group[@"weapons"];
+        UIColor *rarityColor = rarityColors[rarity] ?: [UIColor whiteColor];
+
+        UILabel *groupLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, yOff, panelWidth - 24, 28)];
+        groupLabel.text = [NSString stringWithFormat:@"▸ %@", rarity];
+        groupLabel.textColor = rarityColor;
+        groupLabel.font = [UIFont boldSystemFontOfSize:14];
+        [scrollContent addSubview:groupLabel];
+        yOff += 30;
+
+        CGFloat xOff = 12;
+        for (NSDictionary *weapon in weapons) {
+            NSString *name = weapon[@"name"];
+            CGFloat textWidth = [name sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13]}].width;
+            CGFloat btnWidth = textWidth + 20;
+            if (btnWidth < 50) btnWidth = 50;
+
+            if (xOff + btnWidth > panelWidth - 12) {
+                xOff = 12;
+                yOff += btnSize + btnPadding;
+            }
+
+            UIButton *weaponBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+            weaponBtn.frame = CGRectMake(xOff, yOff, btnWidth, btnSize);
+            weaponBtn.layer.cornerRadius = 6;
+            weaponBtn.layer.masksToBounds = YES;
+            weaponBtn.titleLabel.font = [UIFont systemFontOfSize:13];
+            weaponBtn.tag = 88900;
+
+            BOOL isSelected = [self.selectedWeapons containsObject:name];
+            if (isSelected) {
+                weaponBtn.backgroundColor = rarityColor;
+                [weaponBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+                weaponBtn.selected = YES;
+            } else {
+                weaponBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
+                [weaponBtn setTitleColor:[UIColor colorWithRed:0.7 green:0.7 blue:0.75 alpha:1.0] forState:UIControlStateNormal];
+                weaponBtn.selected = NO;
+            }
+            [weaponBtn setTitle:name forState:UIControlStateNormal];
+
+            objc_setAssociatedObject(weaponBtn, "rarityColor", rarityColor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(weaponBtn, "weaponName", name, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(weaponBtn, "rarityName", rarity, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+            [weaponBtn addTarget:self action:@selector(weaponButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [scrollContent addSubview:weaponBtn];
+
+            xOff += btnWidth + btnPadding;
+        }
+        yOff += btnSize + btnPadding + 10;
+    }
+
+    scrollContent.frame = CGRectMake(0, 0, panelWidth, yOff);
+    scrollView.contentSize = CGSizeMake(panelWidth, yOff);
+
+    UIView *bottomBar = [[UIView alloc] initWithFrame:CGRectMake(0, panelHeight - 60, panelWidth, 60)];
+    bottomBar.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
+    [panel addSubview:bottomBar];
+
+    UILabel *selectedCountLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 4, panelWidth - 32, 22)];
+    selectedCountLabel.text = [NSString stringWithFormat:@"已选择 %lu 个武器", (unsigned long)self.selectedWeapons.count];
+    selectedCountLabel.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.65 alpha:1.0];
+    selectedCountLabel.font = [UIFont systemFontOfSize:13];
+    selectedCountLabel.textAlignment = NSTextAlignmentCenter;
+    selectedCountLabel.tag = 88892;
+    [bottomBar addSubview:selectedCountLabel];
+
+    UIButton *confirmBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    confirmBtn.frame = CGRectMake(16, 28, panelWidth - 32, 28);
+    confirmBtn.backgroundColor = [UIColor colorWithRed:0.2 green:0.7 blue:1.0 alpha:1.0];
+    confirmBtn.layer.cornerRadius = 6;
+    confirmBtn.layer.masksToBounds = YES;
+    [confirmBtn setTitle:@"✅ 确认选择" forState:UIControlStateNormal];
+    confirmBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    confirmBtn.tag = 88893;
+    [bottomBar addSubview:confirmBtn];
+
+    [closeBtn addTarget:self action:@selector(weaponSelectionCancel) forControlEvents:UIControlEventTouchUpInside];
+    [confirmBtn addTarget:self action:@selector(weaponSelectionConfirm) forControlEvents:UIControlEventTouchUpInside];
+}
+
+- (void)weaponButtonTapped:(UIButton *)sender {
+    NSString *weaponName = objc_getAssociatedObject(sender, "weaponName");
+    UIColor *rarityColor = objc_getAssociatedObject(sender, "rarityColor");
+    NSString *rarityName = objc_getAssociatedObject(sender, "rarityName");
+
+    if (sender.selected) {
+        NSUInteger groupSelectedCount = 0;
+        UIView *scrollContent = sender.superview;
+        for (UIView *sub in scrollContent.subviews) {
+            if ([sub isKindOfClass:[UIButton class]] && sub.tag == 88900) {
+                UIButton *btn = (UIButton *)sub;
+                NSString *btnRarity = objc_getAssociatedObject(btn, "rarityName");
+                if (btn.selected && [btnRarity isEqualToString:rarityName]) {
+                    groupSelectedCount++;
+                }
+            }
+        }
+        if (groupSelectedCount <= 1) {
+            return;
+        }
+        sender.selected = NO;
+        sender.backgroundColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.25 alpha:1.0];
+        [sender setTitleColor:[UIColor colorWithRed:0.7 green:0.7 blue:0.75 alpha:1.0] forState:UIControlStateNormal];
+        [self.selectedWeapons removeObject:weaponName];
+    } else {
+        sender.selected = YES;
+        sender.backgroundColor = rarityColor;
+        [sender setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [self.selectedWeapons addObject:weaponName];
+    }
+
+    UIWindow *keyWindow = [self topmostWindow];
+    if (keyWindow) {
+        UIView *panel = [keyWindow viewWithTag:88889];
+        if (panel) {
+            for (UIView *sub in panel.subviews) {
+                UILabel *countLabel = [sub viewWithTag:88892];
+                if (countLabel && [countLabel isKindOfClass:[UILabel class]]) {
+                    countLabel.text = [NSString stringWithFormat:@"已选择 %lu 个武器", (unsigned long)self.selectedWeapons.count];
+                    break;
+                }
+            }
+        }
+    }
+}
+
+- (void)weaponSelectionCancel {
+    UIWindow *keyWindow = [self topmostWindow];
+    if (!keyWindow) return;
+    UIView *overlay = [keyWindow viewWithTag:88888];
+    UIView *panel = [keyWindow viewWithTag:88889];
+    [UIView animateWithDuration:0.2 animations:^{
+        overlay.alpha = 0;
+        panel.alpha = 0;
+    } completion:^(BOOL finished) {
+        [overlay removeFromSuperview];
+        [panel removeFromSuperview];
+    }];
+    self.enableWeaponPin = NO;
+    [self updateMenuSubtitleForTag:1010 text:@"当前：已关闭"];
+}
+
+- (void)weaponSelectionConfirm {
+    if (self.selectedWeapons.count == 0) {
+        [self showMessage:@"提示" message:@"请至少选择一个武器"];
+        return;
+    }
+
+    [self updateWeaponPinRuleWithWeapons:self.selectedWeapons];
+
+    UIWindow *keyWindow = [self topmostWindow];
+    if (!keyWindow) return;
+    UIView *overlay = [keyWindow viewWithTag:88888];
+    UIView *panel = [keyWindow viewWithTag:88889];
+    [UIView animateWithDuration:0.2 animations:^{
+        overlay.alpha = 0;
+        panel.alpha = 0;
+    } completion:^(BOOL finished) {
+        [overlay removeFromSuperview];
+        [panel removeFromSuperview];
+    }];
+
+    NSString *weaponsStr = [self.selectedWeapons componentsJoinedByString:@", "];
+    NSString *log = [NSString stringWithFormat:@"📌 已选择武器: %@", weaponsStr];
+    NSLog(@"[Tweak] %@", log);
+    [[LogWindowManager sharedInstance] appendLog:log];
+}
+
+- (void)updateWeaponPinRuleWithWeapons:(NSArray<NSString *> *)weapons {
+    NSMutableArray *quotedNames = [NSMutableArray array];
+    for (NSString *name in weapons) {
+        [quotedNames addObject:[NSString stringWithFormat:@"\"%@\"", name]];
+    }
+    NSString *jsonArray = [NSString stringWithFormat:@"[%@]", [quotedNames componentsJoinedByString:@","]];
+    NSString *newReplacement = [NSString stringWithFormat:@"var n=this.k8e60jk7();n=n.filter((function(item){return item&&%@.includes(item.name)}));new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeURIComponent('已修改武器库');", jsonArray];
+
+    for (NSMutableDictionary *rule in self.urlReplacementRules) {
+        if ([rule[@"enabledKey"] isEqualToString:@"enableWeaponPin"]) {
+            NSMutableArray *subRules = [rule[@"rules"] mutableCopy];
+            if (subRules.count > 0) {
+                NSMutableDictionary *subRule = [subRules[0] mutableCopy];
+                subRule[@"replacement"] = newReplacement;
+                subRules[0] = subRule;
+                rule[@"rules"] = subRules;
+            }
+            break;
+        }
+    }
 }
 
 #pragma mark - ========== 递归保护 ==========

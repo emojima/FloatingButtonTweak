@@ -2067,9 +2067,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                     [[LogWindowManager sharedInstance] appendLog:jsLog];
                     [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
                 }
-                return;
             }
-            
             
             NSString *contentType = objc_getAssociatedObject(taskSelf, kTaskContentTypeKey) ?: @"(unknown)";
 

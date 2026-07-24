@@ -1122,7 +1122,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
-                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworld-321312'),tweakLog(getThisDetailsString(this))",
+                @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,trace(this,arguments,'refreshNum')",
                 @"useRegex": @YES
             }
         ]
@@ -1137,14 +1137,14 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"this\\.moveDoorCfg=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQMoveDoorCfg\\)\\.sort\\(\\(function\\((\\w),(\\w)\\)\\{return \\4\\.time-\\5\\.time\\}\\)\\)",
-                @"replacement": @"$3.SQMoveDoorCfg.forEach(z=>{z.rewardList.forEach(i=>{i.blood=100})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
+                @"replacement": @"trace(this,arguments,'SQMoveDoorCfg'),$3.SQMoveDoorCfg.forEach(z=>{z.rewardList.forEach(i=>{i.blood=100})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
                 @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
-                @"replacement": @"$4.SQRewardDoorCfg.forEach(i=>{i.blood=100});for(var $1=$2.$3($4.SQRewardDoorCfg)",
+                @"replacement": @"trace(this,arguments,'SQRewardDoorCfg'),$4.SQRewardDoorCfg.forEach(i=>{i.blood=100});for(var $1=$2.$3($4.SQRewardDoorCfg)",
                 @"useRegex": @YES
             }
         ]

@@ -2050,12 +2050,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
             }
 
             // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
-            
             if ([taskUrl hasPrefix:@"bdpfile://bd.timor.wk/helloworld"]) {
-                NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", taskUrl];
-                NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", 
-                                       [[LogWindowManager sharedInstance] truncateString:taskUrl maxLength:120]];
-                [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
                 NSString *requestLog = [NSString stringWithFormat:@"[REQUEST] URL=%@", taskUrl];
                 [[LogWindowManager sharedInstance] writeLogToFile:requestLog];
         
@@ -2073,6 +2068,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                     [[LogWindowManager sharedInstance] appendLog:jsLog];
                     [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
                 }
+                return;
             }
             
             

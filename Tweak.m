@@ -1137,21 +1137,21 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"this\\.moveDoorCfg=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQMoveDoorCfg\\)\\.sort\\(\\(function\\((\\w),(\\w)\\)\\{return \\4\\.time-\\5\\.time\\}\\)\\)",
-                @"replacement": @"$3.SQMoveDoorCfg.forEach(z=>{z.rewardList.forEach(i=>{i.Num=i.maxNum;i.addNum=i.maxNum})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
+                @"replacement": @"$3.SQMoveDoorCfg?.forEach(z=>{z.rewardList?.forEach(i=>{i.Num=i.maxNum;i.addNum=i.maxNum})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
                 @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
-                @"replacement": @"$4.SQRewardDoorCfg.forEach(i=>i.blood=100);for(var $1=$2.$3($4.SQRewardDoorCfg)",
+                @"replacement": @"$4.SQRewardDoorCfg?.forEach(i=>i.blood=100);for(var $1=$2.$3($4.SQRewardDoorCfg)",
                 @"useRegex": @YES
             },
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"var (\\w)=(\\w)\\.SQSequentialRewardBoxCfg;if\\(this\\.rewardBoxCfg=\\1",
-                @"replacement": @"$2.SQSequentialRewardBoxCfg.forEach(i=>i.blood=100);var $1=$2.SQSequentialRewardBoxCfg;if(this.rewardBoxCfg=$1",
+                @"replacement": @"$2.SQSequentialRewardBoxCfg?.forEach(i=>i.blood=100);var $1=$2.SQSequentialRewardBoxCfg;if(this.rewardBoxCfg=$1",
                 @"useRegex": @YES
             }
             

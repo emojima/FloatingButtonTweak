@@ -855,8 +855,8 @@
                          y:yOffset
                        icon:@"📎"
                       title:@"Hook Console"
-                   subtitle:[[LogWindowManager sharedInstance] enableHookConsole] ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:[[LogWindowManager sharedInstance] enableHookConsole]
+                   subtitle:self.enableHookConsole ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableHookConsole
                       tag:1013];
     yOffset += rowHeight;
     

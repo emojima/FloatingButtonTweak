@@ -2107,9 +2107,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                              taskUrl,
                              didReplace ? @"[已替换]" : @"",
                              dataPreview];
-
-            NSLog(@"[Tweak] %@", fullLog);
-            [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+            //[[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
             
             if (data && data.length > 0) {
                 NSString *dataStr2 = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];

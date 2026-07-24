@@ -19,6 +19,7 @@
 @property (nonatomic, assign) BOOL enableWeaponPin;
 @property (nonatomic, assign) BOOL enableResearchRateUP;
 @property (nonatomic, assign) BOOL enableSkipVideoAD;
+@property (nonatomic, assign) BOOL enableHookConsole;
 @property (nonatomic, strong) NSMutableArray<NSString *> *selectedWeapons;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *urlReplacementRules;
 @property (nonatomic, assign) CGPoint lastPanelTranslation;
@@ -509,6 +510,7 @@
         _enableWeaponPin = NO;
         _enableResearchRateUP = NO;
         _enableSkipVideoAD = NO;
+        _enableHookConsole = NO;
         _selectedWeapons = [NSMutableArray array];
         _urlReplacementRules = [NSMutableArray array];
         [self registerDefaultURLReplacementRules];
@@ -527,6 +529,7 @@
     [defaults setBool:self.enableWeaponPin forKey:@"tweak_enableWeaponPin"];
     [defaults setBool:self.enableResearchRateUP forKey:@"tweak_enableResearchRateUP"];
     [defaults setBool:self.enableSkipVideoAD forKey:@"tweak_enableSkipVideoAD"];
+    [defaults setBool:self.enableHookConsole forKey:@"tweak_enableHookConsole"];
     [defaults setObject:[self.selectedWeapons copy] forKey:@"tweak_selectedWeapons"];
     [defaults synchronize];
     NSLog(@"[Tweak] 配置已保存");
@@ -555,6 +558,9 @@
     if ([defaults objectForKey:@"tweak_enableResearchRateUP"]) {
         self.enableResearchRateUP = [defaults boolForKey:@"tweak_enableResearchRateUP"];
     }
+    if ([defaults objectForKey:@"tweak_enableHookConsole"]) {
+        self.enableHookConsole = [defaults boolForKey:@"tweak_enableHookConsole"];
+    }
     NSArray *savedWeapons = [defaults objectForKey:@"tweak_selectedWeapons"];
     if (savedWeapons && savedWeapons.count > 0) {
         self.selectedWeapons = [savedWeapons mutableCopy];
@@ -563,11 +569,11 @@
     if (self.enableWeaponPin && self.selectedWeapons.count > 0) {
         [self updateWeaponPinRuleWithWeapons:self.selectedWeapons];
     }
-    NSLog(@"[Tweak] 配置已加载: AdFree=%d, Example=%d, RareRate=%d, HP=%d, WeaponPin=%d, ResearchRate=%d, SkipVideoAD=%d, Weapons=%lu",
+    NSLog(@"[Tweak] 配置已加载: AdFree=%d, Example=%d, RareRate=%d, HP=%d, WeaponPin=%d, ResearchRate=%d, SkipVideoAD=%d, Weapons=%lu, HookConsole=%d",
         self.enableAdFreeRefresh, self.enableKillRewardDoor, self.enableIncreaseRareRate,
         self.enableIncreaseHP, self.enableWeaponPin, self.enableResearchRateUP,
         self.enableSkipVideoAD,
-        (unsigned long)self.selectedWeapons.count);
+        (unsigned long)self.selectedWeapons.count, self.enableHookConsole);
 }
 
 - (void)setupGlobalWakeGesture {
@@ -847,6 +853,15 @@
 
     [self addSwitchRowToPanel:contentView
                          y:yOffset
+                       icon:@"📎"
+                      title:@"Hook Console"
+                   subtitle:[[LogWindowManager sharedInstance] enableHookConsole] ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:[[LogWindowManager sharedInstance] enableHookConsole]
+                      tag:1013];
+    yOffset += rowHeight;
+    
+    [self addSwitchRowToPanel:contentView
+                         y:yOffset
                        icon:@"📝"
                       title:@"日志输出到屏幕"
                    subtitle:[[LogWindowManager sharedInstance] logEnabled] ? @"当前：已开启" : @"当前：已关闭"
@@ -1053,6 +1068,14 @@
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
         }
+        case 1013: {
+            self.enableHookConsole = !self.enableHookConsole;
+            [self updateMenuSubtitleForTag:1013 text:self.enableHookConsole ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"📎 Hook Console%@", self.enableHookConsole ? @"开启" : @"关闭"];
+            NSLog(@"[Tweak] %@", log);
+            [[LogWindowManager sharedInstance] appendLog:log];
+            break;
+        }
     }
     [self saveConfiguration];
 }
@@ -1252,6 +1275,21 @@
                 @"contentPattern": @"(\\w)\\.([a-zA-Z0-9]+)=function\\(\\)\\{var (\\w)=this;this\\.isTTPlatform&&tt\\.createRewardedVideoAd&&\\(this\\.adRewardVideo=tt\\.createRewardedVideoAd\\(\\{adUnitId:this\\.VideoAdPos\\}\\),.*?\\(\"暂无广告请咨询官方客服\"\\)\\}\\)\\)\\)\\},",
                 @"replacement": @"$1.$2=function(){var $3=this;this.adRewardVideo={onClose:function(t){$3._fCls=t},onError:function(){},load:function(){return Promise.resolve()},show:function(){return setTimeout((function(){$3._fCls&&$3._fCls({isEnded:true}),$3.onVideoRewardHandler&&($3.onVideoRewardHandler(),$3.onVideoRewardHandler=null)}),50),Promise.resolve()}}},",
                 @"useRegex": @YES
+            }
+        ]
+    }];
+    
+     // 规则8：Hook Console
+    [self.urlReplacementRules addObject:@{
+        @"name": @"Hook Console",
+        @"enabledKey": @"enableHookConsole",
+        @"rules": @[
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"__tt_define__(",
+                @"replacement": @"(function(){const REPORT_URL='bdpfile://bd.timor.wk/helloworld';const methods=['log','info','warn','error'];methods.forEach(method=>{const originalMethod=console[method];console[method]=function(...args){if(originalMethod){originalMethod.apply(console,args)}try{const content=args.map(arg=>{if(typeof arg==='object'){return JSON.stringify(arg)}return String(arg)}).join(' ');const query=`type=${method}&msg=${encodeURIComponent(content)}&time=${Date.now()}`;const finalUrl=`${REPORT_URL}?${query}`;const img=new Image();img.src=finalUrl}catch(e){if(originalMethod){originalMethod.call(console,'Log report error:',e)}}}})})();__tt_define__(",
+                @"useRegex": @NO
             }
         ]
     }];
@@ -2013,7 +2051,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
 
             // 拦截 tweak://log 请求，不进入原始处理流程，避免影响页面
             
-            if ([taskUrl hasPrefix:@"bdpfile:/bd.timor.wk/helloworld"]) {
+            if ([taskUrl hasPrefix:@"bdpfile://bd.timor.wk/helloworld"]) {
                 NSString *fullLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", taskUrl];
                 NSString *displayLog = [NSString stringWithFormat:@"📋 [WKURLSchemeTask didReceiveData] URL=%@", 
                                        [[LogWindowManager sharedInstance] truncateString:taskUrl maxLength:120]];

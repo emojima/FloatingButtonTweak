@@ -1124,6 +1124,13 @@
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
                 @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworld-321312'),tweakLog(getThisDetailsString(this))",
                 @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\),(\\w)=0;\\5<\\1\\.length;\\5\\+\\+\\)\\{var (\\w)=\\1\\[\\5\\],",
+                @"replacement": @"for(var $1=$2.$3($4.SQRewardDoorCfg),$5=0;$5<$1.length;$5++){var $6=$1[$5],$6.blood=1,",
+                @"useRegex": @YES
             }
         ]
     }];
@@ -1138,13 +1145,6 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"if\\(this\\.moveDoorCfg\\[this\\.index\\]\\)\\{var (\\w)=this\\.moveDoorCfg\\[this\\.index\\];(\\w)>t\\.time&&this\\.createMoveDoor\\(\\1\\)\\}",
                 @"replacement": @"if(this.moveDoorCfg[this.index]){var $1=this.moveDoorCfg[this.index];$1.rewardList&&Array.isArray($1.rewardList)&&$1.rewardList.forEach(i=>{i.blood=1});$2>$1.time&&this.createMoveDoor($1)}",
-                @"useRegex": @YES
-            },
-            @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-                @"urlIsRegex": @YES,
-                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\),(\\w)=0;\\5<\\1\\.length;\\5\\+\\+\\)\\{var (\\w)=\\1\\[\\5\\],",
-                @"replacement": @"for(var $1=$2.$3($4.SQRewardDoorCfg),$5=0;$5<$1.length;$5++){var $6=$1[$5],$6.blood=1,",
                 @"useRegex": @YES
             }
         ]

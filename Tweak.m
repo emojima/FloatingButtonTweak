@@ -1288,7 +1288,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\},(\\w)\\.([a-zA-Z0-9]+)=function\\(\\){this\\.sortEnemyRootList=\\[\\]",
-                @"replacement": @";window.trace(this,arguments,'enemyRoot');},$1.$2=function(){this.sortEnemyRootList=[]",
+                @"replacement": @";trace(this,arguments,'enemyRoot');},$1.$2=function(){this.sortEnemyRootList=[]",
                 @"useRegex": @YES
             }
         ]

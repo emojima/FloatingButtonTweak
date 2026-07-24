@@ -1219,7 +1219,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"([a-zA-Z_$])>0&&([a-zA-Z_$])\\.push\\(\\{id:([a-zA-Z_$])\\.id,weight:\\1\\}\\)",
-                @"replacement": @"$1>0&&($3.id===15||$3.id>31)&&$2.push({id:$3.id,weight:121-$1})",
+                @"replacement": @"$1>0&&($3.id===15||$3.id===53)&&$2.push({id:$3.id,weight:121-$1})",
                 @"useRegex": @YES
             }
         ]

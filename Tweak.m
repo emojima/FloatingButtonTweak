@@ -1351,7 +1351,7 @@
                              urlString,
                              didReplace ? @"[已替换]" : @"",
                              dataPreview];
-            [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
+            // [[LogWindowManager sharedInstance] appendLogFull:fullLog displayLog:displayLog];
             if (result && result.length > 0) {
                 NSString *responseLog = [NSString stringWithFormat:@"[RESPONSE] URL=%@ | LENGTH=%lu | CONTENT=%@",
                                        urlString, (unsigned long)result.length, result];
@@ -1361,7 +1361,6 @@
             if (modified && ![modified isEqualToString:result]) {
                 self.totalReplacedCount++;
                 NSString *log = [NSString stringWithFormat:@"✅ [%@] 替换成功 (第 %d 次) URL=%@", ruleName, self.totalReplacedCount, urlString];
-                NSLog(@"[Tweak] %@", log);
                 [[LogWindowManager sharedInstance] appendLog:log];
                 result = modified;
             }

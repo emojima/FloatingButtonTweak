@@ -1294,7 +1294,7 @@
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"\},(\w)\.onUpdateSQEnemy=function\(",
+                @"contentPattern": @"\\},(\\w)\\.onUpdateSQEnemy=function\\(",
                 @"replacement": @",trace(this,arguments,'game_init');},$1.onUpdateSQEnemy=function(",
                 @"useRegex": @YES
             }

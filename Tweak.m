@@ -13,7 +13,7 @@
 @property (nonatomic, strong) UIAlertController *currentMenuAlert;
 @property (nonatomic, strong) UILongPressGestureRecognizer *globalWakeGesture;
 @property (nonatomic, assign) BOOL enableAdFreeRefresh;
-@property (nonatomic, assign) BOOL enableExampleRule;
+@property (nonatomic, assign) BOOL enableKillRewardDoor;
 @property (nonatomic, assign) BOOL enableIncreaseRareRate;
 @property (nonatomic, assign) BOOL enableIncreaseHP;
 @property (nonatomic, assign) BOOL enableWeaponPin;
@@ -503,7 +503,7 @@
         _totalHookedMethods = 0;
         _currentMenuAlert = nil;
         _enableAdFreeRefresh = NO;
-        _enableExampleRule = NO;
+        _enableKillRewardDoor = NO;
         _enableIncreaseRareRate = NO;
         _enableIncreaseHP = NO;
         _enableWeaponPin = NO;
@@ -521,7 +521,7 @@
 - (void)saveConfiguration {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults setBool:self.enableAdFreeRefresh forKey:@"tweak_enableAdFreeRefresh"];
-    [defaults setBool:self.enableExampleRule forKey:@"tweak_enableExampleRule"];
+    [defaults setBool:self.enableKillRewardDoor forKey:@"tweak_enableKillRewardDoor"];
     [defaults setBool:self.enableIncreaseRareRate forKey:@"tweak_enableIncreaseRareRate"];
     [defaults setBool:self.enableIncreaseHP forKey:@"tweak_enableIncreaseHP"];
     [defaults setBool:self.enableWeaponPin forKey:@"tweak_enableWeaponPin"];
@@ -537,8 +537,8 @@
     if ([defaults objectForKey:@"tweak_enableAdFreeRefresh"]) {
         self.enableAdFreeRefresh = [defaults boolForKey:@"tweak_enableAdFreeRefresh"];
     }
-    if ([defaults objectForKey:@"tweak_enableExampleRule"]) {
-        self.enableExampleRule = [defaults boolForKey:@"tweak_enableExampleRule"];
+    if ([defaults objectForKey:@"tweak_enableKillRewardDoor"]) {
+        self.enableKillRewardDoor = [defaults boolForKey:@"tweak_enableKillRewardDoor"];
     }
     if ([defaults objectForKey:@"tweak_enableIncreaseRareRate"]) {
         self.enableIncreaseRareRate = [defaults boolForKey:@"tweak_enableIncreaseRareRate"];
@@ -564,7 +564,7 @@
         [self updateWeaponPinRuleWithWeapons:self.selectedWeapons];
     }
     NSLog(@"[Tweak] 配置已加载: AdFree=%d, Example=%d, RareRate=%d, HP=%d, WeaponPin=%d, ResearchRate=%d, SkipVideoAD=%d, Weapons=%lu",
-        self.enableAdFreeRefresh, self.enableExampleRule, self.enableIncreaseRareRate,
+        self.enableAdFreeRefresh, self.enableKillRewardDoor, self.enableIncreaseRareRate,
         self.enableIncreaseHP, self.enableWeaponPin, self.enableResearchRateUP,
         self.enableSkipVideoAD,
         (unsigned long)self.selectedWeapons.count);
@@ -824,10 +824,10 @@
 
     [self addSwitchRowToPanel:contentView
                          y:yOffset
-                       icon:@"💰"
-                      title:@"示例：无限金币"
-                   subtitle:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"
-                    isOn:self.enableExampleRule
+                       icon:@"🚪"
+                      title:@"秒杀门和宝箱"
+                   subtitle:self.enableKillRewardDoor ? @"当前：已开启" : @"当前：已关闭"
+                    isOn:self.enableKillRewardDoor
                       tag:1007];
     yOffset += rowHeight;
 
@@ -1000,9 +1000,9 @@
             break;
         }
         case 1007: {
-            self.enableExampleRule = !self.enableExampleRule;
-            [self updateMenuSubtitleForTag:1007 text:self.enableExampleRule ? @"当前：已开启" : @"当前：已关闭"];
-            NSString *log = [NSString stringWithFormat:@"💰 示例：无限金币已%@", self.enableExampleRule ? @"开启" : @"关闭"];
+            self.enableKillRewardDoor = !self.enableKillRewardDoor;
+            [self updateMenuSubtitleForTag:1007 text:self.enableKillRewardDoor ? @"当前：已开启" : @"当前：已关闭"];
+            NSString *log = [NSString stringWithFormat:@"🚪 秒杀门和宝箱已%@", self.enableKillRewardDoor ? @"开启" : @"关闭"];
             NSLog(@"[Tweak] %@", log);
             [[LogWindowManager sharedInstance] appendLog:log];
             break;
@@ -1130,14 +1130,21 @@
 
     // 示例规则：普通字符串匹配 + 普通字符串替换（非正则）
     [self.urlReplacementRules addObject:@{
-        @"name": @"示例：无限金币",
-        @"enabledKey": @"enableExampleRule",
+        @"name": @"秒杀门和宝箱",
+        @"enabledKey": @"enableKillRewardDoor",
         @"rules": @[
             @{
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
-                @"contentPattern": @"(\\w)\\.([a-zA-Z0-9]+)=function\\(\\)\\{var (\\w)=this;this\\.isTTPlatform&&tt\\.createRewardedVideoAd&&\\(this\\.adRewardVideo=tt\\.createRewardedVideoAd\\(\\{adUnitId:this\\.VideoAdPos\\}\\),.*?\\(\"暂无广告请咨询官方客服\"\\)\\}\\)\\)\\)\\},",
-                @"replacement": @"$1.$2=function(){var $3=this;this.adRewardVideo={onClose:function(t){$3._fCls=t},onError:function(){},load:function(){return Promise.resolve()},show:function(){return setTimeout((function(){$3._fCls&&$3._fCls({isEnded:true}),$3.onVideoRewardHandler&&($3.onVideoRewardHandler(),$3.onVideoRewardHandler=null)}),50),Promise.resolve()}}},",
+                @"contentPattern": @"if\\(this\\.moveDoorCfg\\[this\\.index\\]\\)\\{var (\\w)=this\\.moveDoorCfg\\[this\\.index\\];(\\w)>t\\.time&&this\\.createMoveDoor\\(\\1\\)\\}",
+                @"replacement": @"if(this.moveDoorCfg[this.index]){var $1=this.moveDoorCfg[this.index];$1.rewardList.forEach(i=>{if(i.hasOwnProperty('blood')){i.blood=1}});$2>$1.time&&this.createMoveDoor($1)}",
+                @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\),(\\w)=0;\\5<\\1\\.length;\\5\\+\\+\\)\\{var (\\w)=\\1\\[\\5\\],",
+                @"replacement": @"for(var $1=$2.$3($4.SQRewardDoorCfg),$5=0;$5<$1.length;$5++){var $6=$1[$5],$6.blood=1,",
                 @"useRegex": @YES
             }
         ]

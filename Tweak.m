@@ -1137,14 +1137,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"this\\.moveDoorCfg=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQMoveDoorCfg\\)\\.sort\\(\\(function\\((\\w),(\\w)\\)\\{return \\4\\.time-\\5\\.time\\}\\)\\)",
-                @"replacement": @"trace(this,arguments,'SQMoveDoorCfg'),$3.SQMoveDoorCfg.forEach(z=>{z.rewardList.forEach(i=>{i.blood=100})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
-                @"useRegex": @YES
-            },
-            @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-                @"urlIsRegex": @YES,
-                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
-                @"replacement": @"trace(this,arguments,'SQRewardDoorCfg'),$4.SQRewardDoorCfg.forEach(i=>{i.blood=100});for(var $1=$2.$3($4.SQRewardDoorCfg)",
+                @"replacement": @"trace(this,arguments,'SQMoveDoorCfg'),$3.SQMoveDoorCfg.forEach(z=>{z.rewardList.forEach(i=>i.blood=100)}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
                 @"useRegex": @YES
             }
         ]
@@ -1181,6 +1174,13 @@
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"神器\"\\],weight:\\d+",
                 @"replacement": @"[\"神器\"],weight:50",
+                @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
+                @"replacement": @"trace(this,arguments,'SQRewardDoorCfg');$4.SQRewardDoorCfg.forEach(i=>i.blood=100);for(var $1=$2.$3($4.SQRewardDoorCfg)",
                 @"useRegex": @YES
             }
         ]

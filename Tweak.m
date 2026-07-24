@@ -1288,7 +1288,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"__tt_define__(",
-                @"replacement": @"(function(){const REPORT_URL='bdpfile://bd.timor.wk/helloworld';const methods=['log','info','warn','error'];methods.forEach(method=>{const originalMethod=console[method];console[method]=function(...args){if(originalMethod){originalMethod.apply(console,args)}try{const content=args.map(arg=>{if(typeof arg==='object'){return JSON.stringify(arg)}return String(arg)}).join(' ');const query=`type=${method}&msg=${encodeURIComponent(content)}&time=${Date.now()}`;const finalUrl=`${REPORT_URL}?${query}`;const img=new Image();img.src=finalUrl}catch(e){if(originalMethod){originalMethod.call(console,'Log report error:',e)}}}})})();__tt_define__(",
+                @"replacement": @"(function(){const REPORT_URL='bdpfile://bd.timor.wk/helloworld';const methods=['log','info','warn','error'];methods.forEach(method=>{const originalMethod=console[method];if(!originalMethod)return;console[method]=function(...args){originalMethod.apply(this,arguments);setTimeout(()=>{try{const content=args.map(arg=>{if(typeof arg==='object')return JSON.stringify(arg);return String(arg)}).join(' ');const safeContent=content.substring(0,1000);const img=new Image();img.src=`${REPORT_URL}?type=${method}&msg=${encodeURIComponent(safeContent)}&_t=${Date.now()}`}catch(e){}},0)}})})();__tt_define__(",
                 @"useRegex": @NO
             }
         ]

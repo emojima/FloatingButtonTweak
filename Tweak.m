@@ -2063,7 +2063,7 @@ static void hookURLSchemeTask(id urlSchemeTask) {
                 }
                 if (msg && msg.length > 0) {
                     NSString *decodedMsg = [msg stringByRemovingPercentEncoding] ?: msg;
-                    NSString *jsLog = [NSString stringWithFormat:@"🌐 [JS Console] %@", decodedMsg];
+                    NSString *jsLog = [NSString stringWithFormat:@"🌐[Console] %@", decodedMsg];
                     [[LogWindowManager sharedInstance] appendLog:jsLog];
                     [[LogWindowManager sharedInstance] writeLogToFile:jsLog];
                 }

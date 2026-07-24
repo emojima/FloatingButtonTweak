@@ -1290,6 +1290,13 @@
                 @"contentPattern": @"\\},(\\w)\\.([a-zA-Z0-9]+)=function\\(\\){this\\.sortEnemyRootList=\\[\\]",
                 @"replacement": @";trace(this,arguments,'enemyRoot');},$1.$2=function(){this.sortEnemyRootList=[]",
                 @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"\},(\w)\.onUpdateSQEnemy=function\(",
+                @"replacement": @",trace(this,arguments,'game_init');},$1.onUpdateSQEnemy=function(",
+                @"useRegex": @YES
             }
         ]
     }];

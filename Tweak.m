@@ -1124,13 +1124,6 @@
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
                 @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,tweakLog('helloworld-321312'),tweakLog(getThisDetailsString(this))",
                 @"useRegex": @YES
-            },
-            @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
-                @"urlIsRegex": @YES,
-                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
-                @"replacement": @"$4.SQRewardDoorCfg.forEach(i=>{i.blood=1});for(var $1=$2.$3($4.SQRewardDoorCfg)",
-                @"useRegex": @YES
             }
         ]
     }];
@@ -1144,7 +1137,14 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"this\\.moveDoorCfg=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQMoveDoorCfg\\)\\.sort\\(\\(function\\((\\w),(\\w)\\)\\{return \\4\\.time-\\5\\.time\\}\\)\\)",
-                @"replacement": @"this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time})),this.moveDoorCfg.forEach(i=>{i.blood=1})",
+                @"replacement": @"$3.SQMoveDoorCfg.forEach(z=>{z.rewardList.forEach(i=>{i.blood=1})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
+                @"useRegex": @YES
+            },
+            @{
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlIsRegex": @YES,
+                @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
+                @"replacement": @"$4.SQRewardDoorCfg.forEach(i=>{i.blood=1});for(var $1=$2.$3($4.SQRewardDoorCfg)",
                 @"useRegex": @YES
             }
         ]

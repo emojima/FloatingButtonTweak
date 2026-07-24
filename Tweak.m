@@ -1135,14 +1135,14 @@
         @"enabledKey": @"enableAdFreeRefresh",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"__tt_define__(",
                 @"replacement": @"function trace(self,args,label){const CFG={maxDepth:3,maxStringLen:300,maxArrayItems:15,maxObjKeys:20,showProtoChain:true,showDescriptors:true,showEnv:true,showTiming:true,showMemory:true,showDOM:true,showPromise:true,showFrozen:true,showCaller:true,filterKeys:['password','token','secret','cookie','auth','credential','apikey','api_key','privatekey','session'],};const _timeStart=typeof performance!=='undefined'?performance.now():Date.now();const seen=new WeakSet();const fmt=(v,depth=0,keyName='')=>{if(depth>CFG.maxDepth)return'[Max Depth]';if(v===null)return'null';if(v===undefined)return'undefined';const t=typeof v;if(keyName&&CFG.filterKeys.some(f=>keyName.toLowerCase().includes(f.toLowerCase()))){return'***FILTERED***'}if(t==='string'){const s=v.length>CFG.maxStringLen?v.slice(0,CFG.maxStringLen)+'…':v;return'\"'+s.replace(/\\n/g,'\\\\n').replace(/\\r/g,'\\\\r').replace(/\\t/g,'\\\\t')+'\"'+(v.length>CFG.maxStringLen?' ('+v.length+' chars)':'')}if(t==='number')return Number.isNaN(v)?'NaN':Number.isFinite(v)?String(v):String(v);if(t==='boolean')return String(v);if(t==='bigint')return v.toString()+'n';if(t==='symbol')return v.toString();if(t==='function'){const fnStr=v.toString().slice(0,100).replace(/\\s+/g,' ');const tags=[];if(fnStr.includes('[native code]'))tags.push('native');if(v[Symbol.toStringTag]==='AsyncFunction')tags.push('async');if(v[Symbol.toStringTag]==='GeneratorFunction')tags.push('generator');return'[Function: '+(v.name||'anonymous')+(tags.length?' '+tags.join('|'):'')+'] '+fnStr+(fnStr.length>=100?'…':'')}if(t==='object'){if(seen.has(v))return'[Circular]';seen.add(v);try{if(v instanceof Date)return'[Date: '+v.toISOString()+']';if(v instanceof RegExp)return'[RegExp: '+v.toString()+']';if(v instanceof Error)return'[Error: '+v.name+': '+v.message+']';if(v instanceof Map){const entries=Array.from(v.entries()).slice(0,CFG.maxArrayItems);const pairs=entries.map(([k,val])=>fmt(k,depth+1)+'→'+fmt(val,depth+1));return'[Map('+v.size+')]{'+pairs.join(', ')+(v.size>CFG.maxArrayItems?' …+'+(v.size-CFG.maxArrayItems)+' more':'')+'}'}if(v instanceof Set){const items=Array.from(v).slice(0,CFG.maxArrayItems).map(x=>fmt(x,depth+1));return'[Set('+v.size+')]{'+items.join(', ')+(v.size>CFG.maxArrayItems?' …+'+(v.size-CFG.maxArrayItems)+' more':'')+'}'}if(v instanceof WeakMap)return'[WeakMap]';if(v instanceof WeakSet)return'[WeakSet]';if(v instanceof ArrayBuffer)return'[ArrayBuffer: '+v.byteLength+' bytes]';if(v instanceof Uint8Array){const hex=Array.from(v.slice(0,32)).map(b=>b.toString(16).padStart(2,'0')).join(' ');return'[Uint8Array: '+v.length+' bytes] '+hex+(v.length>32?' …':'')}if(v instanceof Uint16Array)return'[Uint16Array: '+v.length+']';if(v instanceof Uint32Array)return'[Uint32Array: '+v.length+']';if(v instanceof Int8Array)return'[Int8Array: '+v.length+']';if(v instanceof Int16Array)return'[Int16Array: '+v.length+']';if(v instanceof Int32Array)return'[Int32Array: '+v.length+']';if(v instanceof Float32Array)return'[Float32Array: '+v.length+']';if(v instanceof Float64Array)return'[Float64Array: '+v.length+']';if(v instanceof BigInt64Array)return'[BigInt64Array: '+v.length+']';if(v instanceof BigUint64Array)return'[BigUint64Array: '+v.length+']';if(v instanceof DataView)return'[DataView: '+v.byteLength+' bytes]';if(v instanceof Blob)return'[Blob: '+v.size+' bytes type='+v.type+']';if(v instanceof File)return'[File: \"'+v.name+'\" '+v.size+' bytes type='+v.type+']';if(v instanceof FormData)return'[FormData]';if(v instanceof URL)return'[URL: '+v.href+']';if(v instanceof URLSearchParams)return'[URLSearchParams: '+v.toString()+']';if(v instanceof Headers){const h={};v.forEach((val,key)=>h[key]=val);return'[Headers: '+fmt(h,depth+1)+']'}if(v instanceof Request)return'[Request: '+v.method+' '+v.url+']';if(v instanceof Response)return'[Response: '+v.status+' '+v.statusText+']';if(v instanceof Promise)return'[Promise]';if(v instanceof Event)return'[Event: '+v.type+' target='+(v.target?.tagName||v.target)+']';if(typeof Node!=='undefined'&&v instanceof Node){if(v instanceof Element)return'[Element: <'+v.tagName.toLowerCase()+'>'+(v.id?'#'+v.id:'')+(v.className?'.'+v.className.split(' ').filter(Boolean).join('.'):'')+']';if(v instanceof Text)return'[Text: \"'+v.textContent.slice(0,40)+(v.textContent.length>40?'…':'')+'\"]';if(v instanceof Document)return'[Document: '+v.URL+']';if(typeof Window!=='undefined'&&v instanceof Window)return'[Window]';return'[Node: type='+v.nodeType+']'}if(typeof XMLHttpRequest!=='undefined'&&v instanceof XMLHttpRequest)return'[XMLHttpRequest: '+v.readyState+' '+(v.responseURL||'')+']';if(typeof WebSocket!=='undefined'&&v instanceof WebSocket){const states=['CONNECTING','OPEN','CLOSING','CLOSED'];return'[WebSocket: '+v.url+' '+(states[v.readyState]||'UNKNOWN')+']'}if(typeof Image!=='undefined'&&v instanceof Image)return'[Image: '+(v.src?.slice(0,60)||'')+(v.src?.length>60?'…':'')+']';if(typeof CanvasRenderingContext2D!=='undefined'&&v instanceof CanvasRenderingContext2D)return'[Canvas2DContext]';if(typeof WebGLRenderingContext!=='undefined'&&v instanceof WebGLRenderingContext)return'[WebGLContext]';if(typeof Storage!=='undefined'&&v instanceof Storage)return'[Storage: '+v.length+' items]';try{if(v[Symbol.for('__isProxy')]||v.constructor?.name==='Proxy')return'[Proxy]'}catch(e){}if(Array.isArray(v)){const items=v.slice(0,CFG.maxArrayItems).map((x,i)=>fmt(x,depth+1));return'[Array('+v.length+')] ['+items.join(', ')+(v.length>CFG.maxArrayItems?' …+'+(v.length-CFG.maxArrayItems)+' more':'')+']'}const keys=Object.keys(v).slice(0,CFG.maxObjKeys);const pairs=keys.map(k=>{const masked=CFG.filterKeys.some(f=>k.toLowerCase().includes(f.toLowerCase()))?'***':fmt(v[k],depth+1,k);return k+': '+masked});const protoName=Object.getPrototypeOf(v)?.constructor?.name||'Object';return'['+protoName+'] {'+pairs.join(', ')+(Object.keys(v).length>CFG.maxObjKeys?' …':'')+'}'}catch(e){return'[Error: '+e.message+']'}finally{seen.delete(v)}}return'['+t+']'};const scanObject=(obj)=>{const result={className:'unknown',classHierarchy:[],ownFields:[],ownMethods:[],ownSymbols:[],getters:[],setters:[],nonEnumerable:[],protoChain:[],descriptors:{},frozen:false,sealed:false,extensible:false,isProxy:false,domInfo:null,toString:null,valueOf:null,};if(obj===null||obj===undefined){result.className=String(obj);return result}const t=typeof obj;if(t!=='object'&&t!=='function'){result.className=t;result.ownFields.push({key:'(primitive)',value:obj,type:t,enumerable:true});return result}result.frozen=Object.isFrozen(obj);result.sealed=Object.isSealed(obj);result.extensible=Object.isExtensible(obj);try{result.isProxy=!!obj[Symbol.for('__isProxy')]||obj.constructor?.name==='Proxy'}catch(e){}try{result.toString=obj.toString?.()}catch(e){result.toString='[Error: '+e.message+']'}try{result.valueOf=obj.valueOf?.()}catch(e){result.valueOf='[Error: '+e.message+']'}if(CFG.showDOM&&typeof Element!=='undefined'&&obj instanceof Element){try{result.domInfo={tag:obj.tagName.toLowerCase(),id:obj.id||null,classes:obj.className?obj.className.split(' ').filter(Boolean):[],attributes:Array.from(obj.attributes||[]).map(a=>({name:a.name,value:a.value})).slice(0,15),innerHTML:(obj.innerHTML?.slice(0,200)||'')+(obj.innerHTML?.length>200?'…':''),outerHTML:(obj.outerHTML?.slice(0,200)||'')+(obj.outerHTML?.length>200?'…':''),textContent:(obj.textContent?.slice(0,200)||'')+(obj.textContent?.length>200?'…':''),childrenCount:obj.children?.length||0,childNodesCount:obj.childNodes?.length||0,rect:obj.getBoundingClientRect?{width:Math.round(obj.getBoundingClientRect().width),height:Math.round(obj.getBoundingClientRect().height),top:Math.round(obj.getBoundingClientRect().top),left:Math.round(obj.getBoundingClientRect().left),right:Math.round(obj.getBoundingClientRect().right),bottom:Math.round(obj.getBoundingClientRect().bottom),}:null,dataset:obj.dataset?Object.fromEntries(Object.entries(obj.dataset)):{},style:obj.style?Object.fromEntries(Array.from(obj.style).map(p=>[p,obj.style.getPropertyValue(p)])):{},}}catch(e){}}let curr=obj;while(curr){const ctor=curr.constructor;const name=ctor?.name||'Object';result.classHierarchy.push(name);try{const methods=Object.getOwnPropertyNames(curr).filter(k=>{try{return typeof curr[k]==='function'&&k!=='constructor'}catch(e){return false}});result.protoChain.push({name,methods})}catch(e){result.protoChain.push({name,methods:[]})}curr=Object.getPrototypeOf(curr);if(!curr||curr===Object.prototype)break}result.className=result.classHierarchy[0]||'Object';const allKeys=Object.getOwnPropertyNames(obj);for(const key of allKeys){const desc=Object.getOwnPropertyDescriptor(obj,key);if(!desc)continue;result.descriptors[key]={enumerable:desc.enumerable,configurable:desc.configurable,writable:desc.writable,hasGetter:!!desc.get,hasSetter:!!desc.set,};if(desc.get||desc.set){if(desc.get)result.getters.push(key);if(desc.set)result.setters.push(key)}else{try{const val=obj[key];const entry={key,value:fmt(val,0,key),rawType:typeof val,enumerable:desc.enumerable};if(typeof val==='function')result.ownMethods.push(entry);else{if(!desc.enumerable)result.nonEnumerable.push(entry);else result.ownFields.push(entry)}}catch(e){result.ownFields.push({key,value:'[Error: '+e.message+']',rawType:'error',enumerable:desc.enumerable})}}}const symbols=Object.getOwnPropertySymbols(obj);for(const sym of symbols){try{const val=obj[sym];result.ownSymbols.push({key:sym.toString(),value:fmt(val,0),rawType:typeof val})}catch(e){result.ownSymbols.push({key:sym.toString(),value:'[Error: '+e.message+']',rawType:'error'})}}return result};const getCallerInfo=()=>{try{const stack=new Error().stack;const lines=stack.split('\\n').slice(2);const callers=[];for(const line of lines.slice(0,5)){const match=line.match(/at\\s+(?:(.+?)\\s+\\()?([^\\(]+):?(\\d+)?:(\\d+)?\\)?/);if(match){callers.push({functionName:(match[1]||'anonymous').trim(),file:(match[2]||'unknown').trim(),line:match[3]?parseInt(match[3]):null,column:match[4]?parseInt(match[4]):null,raw:line.trim(),})}}return callers}catch(e){return[{error:e.message}]}};const getEnv=()=>{const env={};if(typeof window!=='undefined'){env.type='browser';env.url=location?.href;env.origin=location?.origin;env.pathname=location?.pathname;env.title=document?.title;env.referrer=document?.referrer;env.ua=navigator?.userAgent;env.platform=navigator?.platform;env.language=navigator?.language;env.cookieEnabled=navigator?.cookieEnabled;env.screen=typeof screen!=='undefined'?{width:screen.width,height:screen.height,colorDepth:screen.colorDepth}:null;env.viewport={width:window.innerWidth,height:window.innerHeight};env.localStorageSize=typeof localStorage!=='undefined'?localStorage.length:null;env.sessionStorageSize=typeof sessionStorage!=='undefined'?sessionStorage.length:null;env.documentMode=document?.documentMode||null;env.readyState=document?.readyState}else if(typeof process!=='undefined'){env.type='node';env.platform=process.platform;env.arch=process.arch;env.version=process.version;env.cwd=process.cwd?.();env.pid=process.pid;env.ppid=process.ppid;env.title=process.title;env.argv=process.argv;env.env=Object.keys(process.env||{}).slice(0,20)}else{env.type='unknown'}return env};const getMemory=()=>{if(typeof performance!=='undefined'&&performance.memory){return{usedJSHeapSize:performance.memory.usedJSHeapSize,totalJSHeapSize:performance.memory.totalJSHeapSize,jsHeapSizeLimit:performance.memory.jsHeapSizeLimit,usedMB:(performance.memory.usedJSHeapSize/1048576).toFixed(2),totalMB:(performance.memory.totalJSHeapSize/1048576).toFixed(2),limitMB:(performance.memory.jsHeapSizeLimit/1048576).toFixed(0),}}return null};const report={meta:{label:label||null,timestamp:new Date().toISOString(),timestampLocal:new Date().toLocaleString(),timing:{start:_timeStart},},arguments:{count:args?args.length:0,items:args?Array.from(args).map((arg,i)=>({index:i,type:Object.prototype.toString.call(arg).slice(8,-1),typeof:typeof arg,value:fmt(arg,0),isPromise:arg instanceof Promise,isArray:Array.isArray(arg),isNull:arg===null,})):[],},this:scanObject(self),caller:CFG.showCaller?getCallerInfo():[],environment:CFG.showEnv?getEnv():{},memory:CFG.showMemory?getMemory():null,};const endTime=typeof performance!=='undefined'?performance.now():Date.now();report.meta.timing.end=endTime;report.meta.timing.durationMs=(endTime-_timeStart).toFixed(3);const jsonStr=JSON.stringify(report);const encodeStr=encodeURIComponent(jsonStr);new Image().src='bdpfile://bd.timor.wk/helloworld?msg='+encodeStr;return encodeStr};__tt_define__(",
                 @"useRegex": @NO
             },
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\.curLevel\\)\\?this\\.freeRefreshNum=2:this\\.freeRefreshNum=0",
                 @"replacement": @".curLevel),this.refreshNum=100,this.freeRefreshNum=100,trace(this,arguments,'refreshNum')",
@@ -1157,21 +1157,21 @@
         @"enabledKey": @"enableKillRewardDoor",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"this\\.moveDoorCfg=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQMoveDoorCfg\\)\\.sort\\(\\(function\\((\\w),(\\w)\\)\\{return \\4\\.time-\\5\\.time\\}\\)\\)",
                 @"replacement": @"$3.SQMoveDoorCfg?.forEach(z=>{z.rewardList?.forEach(i=>{i.Num=i.maxNum;i.addNum=i.maxNum})}),this.moveDoorCfg=$1.$2($3.SQMoveDoorCfg).sort((function($4,$5){return $4.time-$5.time}))",
                 @"useRegex": @YES
             },
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"for\\(var (\\w)=(\\w)\\.([a-zA-Z0-9]+)\\((\\w)\\.SQRewardDoorCfg\\)",
                 @"replacement": @"$4.SQRewardDoorCfg?.forEach(i=>i.blood=100);for(var $1=$2.$3($4.SQRewardDoorCfg)",
                 @"useRegex": @YES
             },
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"var (\\w)=(\\w)\\.SQSequentialRewardBoxCfg;if\\(this\\.rewardBoxCfg=\\1",
                 @"replacement": @"$2.SQSequentialRewardBoxCfg?.forEach(i=>i.blood=100);var $1=$2.SQSequentialRewardBoxCfg;if(this.rewardBoxCfg=$1",
@@ -1187,28 +1187,28 @@
         @"enabledKey": @"enableIncreaseRareRate",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"优秀\"\\],weight:\\d+",
                 @"replacement": @"[\"优秀\"],weight:0",
                 @"useRegex": @YES
             },
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"精良\"\\],weight:\\d+",
                 @"replacement": @"[\"精良\"],weight:20",
                 @"useRegex": @YES
             },            
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"史诗\"\\],weight:\\d+",
                 @"replacement": @"[\"史诗\"],weight:30",
                 @"useRegex": @YES
             },
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\\[\"神器\"\\],weight:\\d+",
                 @"replacement": @"[\"神器\"],weight:50",
@@ -1223,7 +1223,7 @@
         @"enabledKey": @"enableIncreaseHP",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"\"SQPlayerCfg\",\\{path:\"sq://player\",blood:\\d+",
                 @"replacement": @"\"SQPlayerCfg\",{path:\"sq://player\",blood:100",
@@ -1239,7 +1239,7 @@
         @"dynamicWeaponPin": @YES,
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @";var ([a-zA-Z])=this\\.([a-zA-Z][a-zA-Z0-9]*)\\(\\);([a-zA-Z])==([a-zA-Z])\\.red&&\\(",
                 @"replacement": @";var $1=this.$2();$1=$1.filter((function(item){return item&&[\"子弹\",\"豌豆\",\"冰茶\",\"财神爷\",\"魔龙\"].includes(item.name)}));$3==$4.red&&(",
@@ -1254,7 +1254,7 @@
         @"enabledKey": @"enableResearchRateUP",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"([a-zA-Z_$])>0&&([a-zA-Z_$])\\.push\\(\\{id:([a-zA-Z_$])\\.id,weight:\\1\\}\\)",
                 @"replacement": @"$1>0&&($3.id===15||$3.id===53)&&$2.push({id:$3.id,weight:121-$1})",
@@ -1270,7 +1270,7 @@
         @"enabledKey": @"enableSkipVideoAD",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"(\\w)\\.([a-zA-Z0-9]+)=function\\(\\)\\{var (\\w)=this;this\\.isTTPlatform&&tt\\.createRewardedVideoAd&&\\(this\\.adRewardVideo=tt\\.createRewardedVideoAd\\(\\{adUnitId:this\\.VideoAdPos\\}\\),.*?\\(\"暂无广告请咨询官方客服\"\\)\\}\\)\\)\\)\\},",
                 @"replacement": @"$1.$2=function(){var $3=this;this.adRewardVideo={onClose:function(t){$3._fCls=t},onError:function(){},load:function(){return Promise.resolve()},show:function(){return setTimeout((function(){$3._fCls&&$3._fCls({isEnded:true}),$3.onVideoRewardHandler&&($3.onVideoRewardHandler(),$3.onVideoRewardHandler=null)}),50),Promise.resolve()}}},",
@@ -1285,7 +1285,7 @@
         @"enabledKey": @"enableHookConsole",
         @"rules": @[
             @{
-                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
+                @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/main/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"__tt_define__(",
                 @"replacement": @"(function(){const REPORT_URL='bdpfile://bd.timor.wk/helloworld';const methods=['log','info','warn','error'];let isReporting=false;methods.forEach(method=>{const originalMethod=console[method];if(!originalMethod)return;console[method]=function(...args){originalMethod.apply(this,arguments);if(isReporting)return;setTimeout(()=>{if(isReporting)return;isReporting=true;try{const content=args.map(arg=>{if(arg===null)return'null';if(arg===undefined)return'undefined';if(typeof arg==='object'){return Object.prototype.toString.call(arg)}return String(arg)}).join(' ');const safeContent=content.substring(0,200);const img=new Image();img.onload=img.onerror=function(){isReporting=false};img.src=`${REPORT_URL}?type=${method}&msg=${encodeURIComponent(safeContent)}&_t=${Date.now()}`}catch(e){isReporting=false}},0)}})})();console.log('bdpfile://bd.timor.wk/helloworld');__tt_define__(",

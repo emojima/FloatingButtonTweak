@@ -1137,7 +1137,7 @@
                 @"urlPattern": @"bdpfile://bd\\.timor\\.wk/.*/game\\.js",
                 @"urlIsRegex": @YES,
                 @"contentPattern": @"if\\(this\\.moveDoorCfg\\[this\\.index\\]\\)\\{var (\\w)=this\\.moveDoorCfg\\[this\\.index\\];(\\w)>t\\.time&&this\\.createMoveDoor\\(\\1\\)\\}",
-                @"replacement": @"if(this.moveDoorCfg[this.index]){var $1=this.moveDoorCfg[this.index];$1.rewardList.forEach(i=>{if(i.hasOwnProperty('blood')){i.blood=1}});$2>$1.time&&this.createMoveDoor($1)}",
+                @"replacement": @"if(this.moveDoorCfg[this.index]){var $1=this.moveDoorCfg[this.index];$1.rewardList&&Array.isArray($1.rewardList)&&$1.rewardList.forEach(i=>{i.blood=1});$2>$1.time&&this.createMoveDoor($1)}",
                 @"useRegex": @YES
             },
             @{
